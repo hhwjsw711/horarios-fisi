@@ -2,7 +2,6 @@ import { neon } from "@neondatabase/serverless";
 import {
   type ContractKey,
   type Course,
-  contractRules,
   courseCatalog,
   type DayKey,
   days,
@@ -12,7 +11,10 @@ import {
   slotKey,
   type TeacherProfile,
 } from "@/lib/schedule-data";
-import { validateTeacherRules } from "@/lib/schedule-rules";
+import {
+  courseAssignmentState,
+  validateTeacherRules,
+} from "@/lib/schedule-rules";
 
 export type AppRole = "docente" | "direccion";
 
@@ -602,15 +604,8 @@ async function addCourseToTeacher(
     throw new ScheduleError("Curso no válido.");
   }
   const profile = await readTeacher(teacherId);
-  const alreadySelected = profile.courses.some((item) => item.id === courseId);
-  const countedCourses = profile.courses.filter(
-    (item) => !item.isThesis,
-  ).length;
-  if (
-    !alreadySelected &&
-    !course.is_thesis &&
-    countedCourses >= contractRules[profile.contract].maxCourses
-  ) {
+  const assignment = courseAssignmentState(profile, mapCourseRow(course));
+  if (assignment.limitReached) {
     throw new ScheduleError("Ya alcanzaste el máximo de cursos permitido.");
   }
   await sql.query(
@@ -625,7 +620,7 @@ async function addCourseToTeacher(
     `,
     [teacherId, courseId],
   );
-  if (!alreadySelected) {
+  if (!assignment.alreadyAssigned) {
     await markTeacherDraft(teacherId);
     await recordEvent(identity, teacherId, eventType, {
       courseId,
@@ -1108,6 +1103,21 @@ async function readCourse(id: string) {
     [id],
   )) as CourseRow[];
   return rows[0];
+}
+
+function mapCourseRow(course: CourseRow): Course {
+  return {
+    id: course.id,
+    code: course.code ?? undefined,
+    name: course.name,
+    school: course.school,
+    active: course.active,
+    cycle: course.cycle,
+    credits: course.credits,
+    courseType: course.course_type,
+    curriculum: course.curriculum,
+    isThesis: course.is_thesis,
+  };
 }
 
 async function readSettings(): Promise<ScheduleSettings> {

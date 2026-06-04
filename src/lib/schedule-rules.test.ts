@@ -4,7 +4,11 @@ import {
   seedSlots,
   type TeacherProfile,
 } from "@/lib/schedule-data";
-import { completionForRules, validateTeacherRules } from "@/lib/schedule-rules";
+import {
+  completionForRules,
+  courseAssignmentState,
+  validateTeacherRules,
+} from "@/lib/schedule-rules";
 
 function profile(
   input: Pick<TeacherProfile, "availability" | "contract" | "courses">,
@@ -93,5 +97,55 @@ describe("schedule rules", () => {
     );
 
     expect(completionForRules({ contract: "partial10" }, validation)).toBe(100);
+  });
+
+  test("blocks non-thesis courses after the contract quota", () => {
+    const assignment = courseAssignmentState(
+      profile({
+        contract: "partial10",
+        courses: [courseCatalog[0]],
+        availability: [],
+      }),
+      courseCatalog[1],
+    );
+
+    expect(assignment).toMatchObject({
+      countedCourses: 1,
+      limitReached: true,
+      canAssign: false,
+    });
+  });
+
+  test("allows thesis courses after the contract quota", () => {
+    const assignment = courseAssignmentState(
+      profile({
+        contract: "partial10",
+        courses: [courseCatalog[0]],
+        availability: [],
+      }),
+      courseCatalog[9],
+    );
+
+    expect(assignment).toMatchObject({
+      countedCourses: 1,
+      limitReached: false,
+      canAssign: true,
+    });
+  });
+
+  test("does not allow assigning the same course twice", () => {
+    const assignment = courseAssignmentState(
+      profile({
+        contract: "full",
+        courses: [courseCatalog[0]],
+        availability: [],
+      }),
+      courseCatalog[0],
+    );
+
+    expect(assignment).toMatchObject({
+      alreadyAssigned: true,
+      canAssign: false,
+    });
   });
 });

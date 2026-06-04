@@ -1,4 +1,5 @@
 import {
+  type Course,
   contractRules,
   type DayKey,
   days,
@@ -10,6 +11,13 @@ export type ScheduleValidation = {
   countedCourses: number;
   blockDays: number;
   complete: boolean;
+};
+
+export type CourseAssignmentState = {
+  alreadyAssigned: boolean;
+  countedCourses: number;
+  limitReached: boolean;
+  canAssign: boolean;
 };
 
 export function validateTeacherRules(
@@ -63,6 +71,30 @@ export function completionForRules(
           10,
     ),
   );
+}
+
+export function courseAssignmentState(
+  profile: Pick<TeacherProfile, "contract" | "courses">,
+  course?: Course | null,
+): CourseAssignmentState {
+  const alreadyAssigned = course
+    ? profile.courses.some((item) => item.id === course.id)
+    : false;
+  const countedCourses = profile.courses.filter(
+    (item) => !item.isThesis,
+  ).length;
+  const limitReached = Boolean(
+    course &&
+      !alreadyAssigned &&
+      !course.isThesis &&
+      countedCourses >= contractRules[profile.contract].maxCourses,
+  );
+  return {
+    alreadyAssigned,
+    countedCourses,
+    limitReached,
+    canAssign: Boolean(course && !alreadyAssigned && !limitReached),
+  };
 }
 
 function maxConsecutive(values: number[]) {

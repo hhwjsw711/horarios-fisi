@@ -143,6 +143,7 @@ import type {
 } from "@/lib/schedule-db";
 import {
   completionForRules,
+  courseAssignmentState,
   type ScheduleValidation,
   validateTeacherRules,
 } from "@/lib/schedule-rules";
@@ -2907,25 +2908,13 @@ function CoursesReviewCard({
   const selectedCourse = visibleCatalog.find(
     (course) => course.id === courseId,
   );
-  const alreadyAssigned = selectedCourse
-    ? teacher.courses.some((course) => course.id === selectedCourse.id)
-    : false;
-  const countedCourses = teacher.courses.filter(
-    (course) => !course.isThesis,
-  ).length;
-  const limitReached = Boolean(
-    selectedCourse &&
-      !alreadyAssigned &&
-      !selectedCourse.isThesis &&
-      countedCourses >= contractRules[teacher.contract].maxCourses,
-  );
-  const assignDisabled =
-    disabled || saving || !selectedCourse || alreadyAssigned || limitReached;
+  const assignment = courseAssignmentState(teacher, selectedCourse);
+  const assignDisabled = disabled || saving || !assignment.canAssign;
   const assignLabel = disabled
     ? "Cerrado"
-    : alreadyAssigned
+    : assignment.alreadyAssigned
       ? "Asignado"
-      : limitReached
+      : assignment.limitReached
         ? "Cupo lleno"
         : "Asignar";
 
@@ -3007,7 +2996,7 @@ function CoursesReviewCard({
               {assignLabel}
             </Button>
           </div>
-          {limitReached ? (
+          {assignment.limitReached ? (
             <p className="text-muted-foreground text-xs">
               {contractRules[teacher.contract].label}: máximo{" "}
               {contractRules[teacher.contract].maxCourses} cursos no Tesis.
