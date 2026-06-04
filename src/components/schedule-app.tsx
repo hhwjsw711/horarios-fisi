@@ -167,6 +167,8 @@ type ScheduleAction =
   | { action: "setAvailability"; availability: string[] }
   | { action: "addCourse"; courseId: string }
   | { action: "removeCourse"; courseId: string }
+  | { action: "assignTeacherCourse"; teacherId: string; courseId: string }
+  | { action: "unassignTeacherCourse"; teacherId: string; courseId: string }
   | { action: "observe"; teacherId: string; note: string }
   | { action: "approve"; teacherId: string }
   | { action: "createCourse"; name: string; school: string; isThesis: boolean }
@@ -567,6 +569,36 @@ export function ScheduleApp({
     return payload;
   };
 
+  const handleAssignTeacherCourse = async (
+    teacherId: string,
+    nextCourseId: string,
+  ) => {
+    const payload = await request({
+      action: "assignTeacherCourse",
+      teacherId,
+      courseId: nextCourseId,
+    });
+    if (payload) {
+      toast.success("Curso asignado al docente.");
+    }
+    return payload;
+  };
+
+  const handleUnassignTeacherCourse = async (
+    teacherId: string,
+    nextCourseId: string,
+  ) => {
+    const payload = await request({
+      action: "unassignTeacherCourse",
+      teacherId,
+      courseId: nextCourseId,
+    });
+    if (payload) {
+      toast.success("Curso retirado del docente.");
+    }
+    return payload;
+  };
+
   return (
     <ScheduleFrame
       academicTerm={academicTerm}
@@ -611,10 +643,13 @@ export function ScheduleApp({
         <AuditView events={data.events} />
       ) : view === "direccion" && canUseDirection ? (
         <DirectorView
+          catalog={activeCatalog}
           handleExportPdf={handleExportPdf}
           handleExportXlsx={handleExportXlsx}
           handleApproveTeacher={handleApproveTeacher}
+          handleAssignTeacherCourse={handleAssignTeacherCourse}
           handleObserveTeacher={handleObserveTeacher}
+          handleUnassignTeacherCourse={handleUnassignTeacherCourse}
           events={selectedEvents}
           periodClosed={periodClosed}
           reviewNote={reviewNote}
@@ -628,6 +663,7 @@ export function ScheduleApp({
           showOnlyPending={showOnlyPending}
           saving={saving}
           selectedTeacherVisible={selectedTeacherVisible}
+          schools={schoolOptions}
           teacherQuery={teacherQuery}
           teacherStatusFilter={teacherStatusFilter}
           teachers={filteredTeachers}
@@ -2398,17 +2434,21 @@ function StatusMetric({ label, value }: { label: string; value: string }) {
 }
 
 function DirectorView({
+  catalog,
   events,
   handleApproveTeacher,
+  handleAssignTeacherCourse,
   handleExportPdf,
   handleExportXlsx,
   handleObserveTeacher,
+  handleUnassignTeacherCourse,
   periodClosed,
   reviewNote,
   selectedTeacher,
   selectedTeacherId,
   selectedTeacherVisible,
   saving,
+  schools,
   setReviewNote,
   setSelectedTeacherId,
   setShowOnlyPending,
@@ -2422,17 +2462,27 @@ function DirectorView({
   totalTeacherCount,
   validation,
 }: {
+  catalog: Course[];
   events: ScheduleEvent[];
   handleApproveTeacher: () => Promise<void>;
+  handleAssignTeacherCourse: (
+    teacherId: string,
+    courseId: string,
+  ) => Promise<SchedulePayload | null>;
   handleExportPdf: () => Promise<void>;
   handleExportXlsx: () => Promise<void>;
   handleObserveTeacher: () => Promise<void>;
+  handleUnassignTeacherCourse: (
+    teacherId: string,
+    courseId: string,
+  ) => Promise<SchedulePayload | null>;
   periodClosed: boolean;
   reviewNote: string;
   selectedTeacher: TeacherProfile;
   selectedTeacherId: string;
   selectedTeacherVisible: boolean;
   saving: boolean;
+  schools: string[];
   setReviewNote: (note: string) => void;
   setSelectedTeacherId: (id: string) => void;
   setShowOnlyPending: (value: boolean) => void;
@@ -2632,13 +2682,17 @@ function DirectorView({
                       <SheetPanel className="min-h-0 p-3">
                         <DirectorDetailTabs
                           events={events}
+                          catalog={catalog}
                           onApproveTeacher={handleApproveTeacher}
+                          onAssignTeacherCourse={handleAssignTeacherCourse}
                           onObserveTeacher={handleObserveTeacher}
+                          onUnassignTeacherCourse={handleUnassignTeacherCourse}
                           periodClosed={periodClosed}
                           reviewNote={reviewNote}
                           saving={saving}
                           selectedTeacher={selectedTeacher}
                           setReviewNote={setReviewNote}
+                          schools={schools}
                           validation={validation}
                         />
                       </SheetPanel>
@@ -2672,13 +2726,17 @@ function DirectorView({
         {selectedTeacherUnavailable ? null : (
           <DirectorDetailTabs
             events={events}
+            catalog={catalog}
             onApproveTeacher={handleApproveTeacher}
+            onAssignTeacherCourse={handleAssignTeacherCourse}
             onObserveTeacher={handleObserveTeacher}
+            onUnassignTeacherCourse={handleUnassignTeacherCourse}
             periodClosed={periodClosed}
             reviewNote={reviewNote}
             saving={saving}
             selectedTeacher={selectedTeacher}
             setReviewNote={setReviewNote}
+            schools={schools}
             validation={validation}
           />
         )}
@@ -2732,24 +2790,38 @@ function TeacherQueueMetrics({
 }
 
 function DirectorDetailTabs({
+  catalog,
   events,
   onApproveTeacher,
+  onAssignTeacherCourse,
   onObserveTeacher,
+  onUnassignTeacherCourse,
   periodClosed,
   reviewNote,
   saving,
   selectedTeacher,
   setReviewNote,
+  schools,
   validation,
 }: {
+  catalog: Course[];
   events: ScheduleEvent[];
   onApproveTeacher: () => Promise<void>;
+  onAssignTeacherCourse: (
+    teacherId: string,
+    courseId: string,
+  ) => Promise<SchedulePayload | null>;
   onObserveTeacher: () => Promise<void>;
+  onUnassignTeacherCourse: (
+    teacherId: string,
+    courseId: string,
+  ) => Promise<SchedulePayload | null>;
   periodClosed: boolean;
   reviewNote: string;
   saving: boolean;
   selectedTeacher: TeacherProfile;
   setReviewNote: (note: string) => void;
+  schools: string[];
   validation: Validation;
 }) {
   return (
@@ -2776,7 +2848,15 @@ function DirectorDetailTabs({
         />
       </TabsContent>
       <TabsContent value="cursos" className="min-h-0 overflow-hidden">
-        <CoursesReviewCard courses={selectedTeacher.courses} />
+        <CoursesReviewCard
+          catalog={catalog}
+          disabled={periodClosed}
+          onAssignCourse={onAssignTeacherCourse}
+          onRemoveCourse={onUnassignTeacherCourse}
+          saving={saving}
+          schools={schools}
+          teacher={selectedTeacher}
+        />
       </TabsContent>
       <TabsContent value="auditoria" className="min-h-0 overflow-hidden">
         <AuditTrailCard events={events} />
@@ -2785,22 +2865,168 @@ function DirectorDetailTabs({
   );
 }
 
-function CoursesReviewCard({ courses }: { courses: Course[] }) {
+function CoursesReviewCard({
+  catalog,
+  disabled,
+  onAssignCourse,
+  onRemoveCourse,
+  saving,
+  schools,
+  teacher,
+}: {
+  catalog: Course[];
+  disabled: boolean;
+  onAssignCourse: (
+    teacherId: string,
+    courseId: string,
+  ) => Promise<SchedulePayload | null>;
+  onRemoveCourse: (
+    teacherId: string,
+    courseId: string,
+  ) => Promise<SchedulePayload | null>;
+  saving: boolean;
+  schools: string[];
+  teacher: TeacherProfile;
+}) {
+  const catalogSchools = useMemo(
+    () =>
+      Array.from(
+        new Set([...schools, ...catalog.map((course) => course.school)]),
+      )
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b)),
+    [catalog, schools],
+  );
+  const defaultSchool = teacher.courses[0]?.school ?? catalogSchools[0] ?? "";
+  const [school, setSchool] = useState(defaultSchool);
+  const visibleCatalog = useMemo(
+    () => visibleCoursesForSchool(catalog, school),
+    [catalog, school],
+  );
+  const [courseId, setCourseId] = useState(visibleCatalog[0]?.id ?? "");
+  const selectedCourse = visibleCatalog.find(
+    (course) => course.id === courseId,
+  );
+  const alreadyAssigned = selectedCourse
+    ? teacher.courses.some((course) => course.id === selectedCourse.id)
+    : false;
+  const countedCourses = teacher.courses.filter(
+    (course) => !course.isThesis,
+  ).length;
+  const limitReached = Boolean(
+    selectedCourse &&
+      !alreadyAssigned &&
+      !selectedCourse.isThesis &&
+      countedCourses >= contractRules[teacher.contract].maxCourses,
+  );
+  const assignDisabled =
+    disabled || saving || !selectedCourse || alreadyAssigned || limitReached;
+  const assignLabel = disabled
+    ? "Cerrado"
+    : alreadyAssigned
+      ? "Asignado"
+      : limitReached
+        ? "Cupo lleno"
+        : "Asignar";
+
+  useEffect(() => {
+    setSchool(defaultSchool);
+  }, [defaultSchool]);
+
+  useEffect(() => {
+    setCourseId((current) =>
+      visibleCatalog.some((course) => course.id === current)
+        ? current
+        : (visibleCatalog[0]?.id ?? ""),
+    );
+  }, [visibleCatalog]);
+
+  const handleAssign = async () => {
+    if (!courseId) {
+      return;
+    }
+    await onAssignCourse(teacher.id, courseId);
+  };
+
   return (
     <Card className="min-h-0 overflow-hidden">
       <CardHeader className="shrink-0 border-b px-3 py-1.5">
         <CardTitle className="text-base">Cursos del docente</CardTitle>
         <CardDescription>
-          Cursos asociados al horario seleccionado.
+          Asignación administrativa de carga docente.
         </CardDescription>
       </CardHeader>
-      <CardContent className="min-h-0 flex-1 p-0">
-        <CoursesTable
-          compact
-          courses={courses}
-          emptyDescription="El docente aún no seleccionó cursos para este periodo."
-          emptyTitle="Sin cursos registrados"
-        />
+      <CardContent className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2 px-2 py-2">
+        <div className="grid gap-1.5">
+          <Select
+            disabled={disabled || saving}
+            value={school}
+            onValueChange={setSchool}
+          >
+            <SelectTrigger className="w-full" size="sm">
+              <SelectValue placeholder="Escuela" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectLabel>Escuela profesional</SelectLabel>
+                {catalogSchools.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {item}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5">
+            <Select
+              disabled={disabled || saving || !visibleCatalog.length}
+              value={courseId}
+              onValueChange={setCourseId}
+            >
+              <SelectTrigger className="w-full" size="sm">
+                <SelectValue placeholder="Curso" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Curso</SelectLabel>
+                  {visibleCatalog.map((course) => (
+                    <SelectItem key={course.id} value={course.id}>
+                      {courseLabel(course)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Button
+              disabled={assignDisabled}
+              loading={saving}
+              onClick={handleAssign}
+              size="sm"
+            >
+              <Plus data-icon="inline-start" />
+              {assignLabel}
+            </Button>
+          </div>
+          {limitReached ? (
+            <p className="text-muted-foreground text-xs">
+              {contractRules[teacher.contract].label}: máximo{" "}
+              {contractRules[teacher.contract].maxCourses} cursos no Tesis.
+            </p>
+          ) : null}
+        </div>
+        <div className="min-h-0 overflow-hidden rounded-md border">
+          <CoursesTable
+            compact
+            courses={teacher.courses}
+            emptyDescription="Asigna cursos desde el catálogo activo."
+            emptyTitle="Sin cursos asignados"
+            onRemoveCourse={
+              disabled || saving
+                ? undefined
+                : (courseIdValue) => onRemoveCourse(teacher.id, courseIdValue)
+            }
+          />
+        </div>
       </CardContent>
     </Card>
   );
@@ -3435,6 +3661,8 @@ function routeLabel(view: ViewKey) {
 function eventLabel(eventType: string) {
   const labels: Record<string, string> = {
     "director.approved_schedule": "Horario aprobado",
+    "director.course_assigned": "Curso asignado",
+    "director.course_unassigned": "Curso retirado",
     "director.observed_schedule": "Observación registrada",
     "period.closed": "Periodo cerrado",
     "period.reopened": "Periodo reabierto",
@@ -3501,7 +3729,11 @@ function eventSummary(event: ScheduleEvent) {
     return `${event.metadata.slots} bloques marcados`;
   }
   if (typeof event.metadata.courseId === "string") {
-    return event.metadata.courseId;
+    const name =
+      typeof event.metadata.courseName === "string"
+        ? event.metadata.courseName
+        : "";
+    return [name, event.metadata.courseId].filter(Boolean).join(" · ");
   }
   return "";
 }

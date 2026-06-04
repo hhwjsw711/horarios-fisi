@@ -5,6 +5,7 @@ import type { AppRole } from "@/lib/schedule-db";
 import {
   addCourse,
   approveSchedule,
+  assignTeacherCourse,
   completeOnboarding,
   createCourse,
   getSchedulePayload,
@@ -19,6 +20,7 @@ import {
   setPeriodClosed,
   setUserAccess,
   submitSchedule,
+  unassignTeacherCourse,
 } from "@/lib/schedule-db";
 
 export async function GET(request: NextRequest) {
@@ -85,6 +87,28 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: "Invalid course" }, { status: 400 });
       }
       return NextResponse.json(await removeCourse(identity, body.courseId));
+    }
+    if (body.action === "assignTeacherCourse") {
+      if (
+        typeof body.teacherId !== "string" ||
+        typeof body.courseId !== "string"
+      ) {
+        return NextResponse.json({ error: "Invalid course" }, { status: 400 });
+      }
+      return NextResponse.json(
+        await assignTeacherCourse(identity, body.teacherId, body.courseId),
+      );
+    }
+    if (body.action === "unassignTeacherCourse") {
+      if (
+        typeof body.teacherId !== "string" ||
+        typeof body.courseId !== "string"
+      ) {
+        return NextResponse.json({ error: "Invalid course" }, { status: 400 });
+      }
+      return NextResponse.json(
+        await unassignTeacherCourse(identity, body.teacherId, body.courseId),
+      );
     }
     if (body.action === "observe") {
       if (typeof body.teacherId !== "string" || typeof body.note !== "string") {

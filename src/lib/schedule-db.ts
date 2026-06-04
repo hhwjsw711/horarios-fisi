@@ -563,14 +563,45 @@ export async function addCourse(identity: ScheduleIdentity, courseId: string) {
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
+  const profileId = await getProfileId(identity);
+  return addCourseToTeacher(
+    identity,
+    profileId,
+    courseId,
+    "teacher.course_added",
+  );
+}
+
+export async function assignTeacherCourse(
+  identity: ScheduleIdentity,
+  teacherId: string,
+  courseId: string,
+) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
+  await ensureDirection(identity);
+  return addCourseToTeacher(
+    identity,
+    teacherId,
+    courseId,
+    "director.course_assigned",
+  );
+}
+
+async function addCourseToTeacher(
+  identity: ScheduleIdentity,
+  teacherId: string,
+  courseId: string,
+  eventType: string,
+) {
   await ensurePeriodOpen();
   const sql = getSql();
-  const profileId = await getProfileId(identity);
   const course = await readCourse(courseId);
   if (!course) {
     throw new ScheduleError("Curso no válido.");
   }
-  const profile = await readTeacher(profileId);
+  const profile = await readTeacher(teacherId);
   const alreadySelected = profile.courses.some((item) => item.id === courseId);
   const countedCourses = profile.courses.filter(
     (item) => !item.isThesis,
@@ -592,13 +623,15 @@ export async function addCourse(identity: ScheduleIdentity, courseId: string) {
       )
       on conflict (teacher_id, course_id) do nothing
     `,
-    [profileId, courseId],
+    [teacherId, courseId],
   );
-  await sql.query(
-    "update teacher_profiles set status = 'borrador', review_note = '', approved_at = null, updated_at = now() where id = $1",
-    [profileId],
-  );
-  await recordEvent(identity, profileId, "teacher.course_added", { courseId });
+  if (!alreadySelected) {
+    await markTeacherDraft(teacherId);
+    await recordEvent(identity, teacherId, eventType, {
+      courseId,
+      courseName: course.name,
+    });
+  }
   return getSchedulePayload(identity);
 }
 
@@ -754,21 +787,60 @@ export async function removeCourse(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  await ensurePeriodOpen();
-  const sql = getSql();
   const profileId = await getProfileId(identity);
-  await sql.query(
-    "delete from teacher_courses where teacher_id = $1 and course_id = $2",
-    [profileId, courseId],
+  return removeCourseFromTeacher(
+    identity,
+    profileId,
+    courseId,
+    "teacher.course_removed",
   );
+}
+
+export async function unassignTeacherCourse(
+  identity: ScheduleIdentity,
+  teacherId: string,
+  courseId: string,
+) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
+  await ensureDirection(identity);
+  return removeCourseFromTeacher(
+    identity,
+    teacherId,
+    courseId,
+    "director.course_unassigned",
+  );
+}
+
+async function removeCourseFromTeacher(
+  identity: ScheduleIdentity,
+  teacherId: string,
+  courseId: string,
+  eventType: string,
+) {
+  await ensurePeriodOpen();
+  await readTeacher(teacherId);
+  const sql = getSql();
+  const rows = (await sql.query(
+    "delete from teacher_courses where teacher_id = $1 and course_id = $2 returning course_id",
+    [teacherId, courseId],
+  )) as { course_id: string }[];
+  if (rows[0]) {
+    await markTeacherDraft(teacherId);
+    await recordEvent(identity, teacherId, eventType, {
+      courseId,
+    });
+  }
+  return getSchedulePayload(identity);
+}
+
+async function markTeacherDraft(teacherId: string) {
+  const sql = getSql();
   await sql.query(
     "update teacher_profiles set status = 'borrador', review_note = '', approved_at = null, updated_at = now() where id = $1",
-    [profileId],
+    [teacherId],
   );
-  await recordEvent(identity, profileId, "teacher.course_removed", {
-    courseId,
-  });
-  return getSchedulePayload(identity);
 }
 
 export async function observeSchedule(
@@ -1344,7 +1416,7 @@ async function readTeacher(id: string) {
     [id],
   )) as TeacherRow[];
   if (!rows[0]) {
-    throw new Error("Teacher profile not found.");
+    throw new ScheduleError("Docente no encontrado.", 404);
   }
   return inflateTeacher(rows[0]);
 }
