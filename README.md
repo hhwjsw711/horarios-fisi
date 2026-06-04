@@ -37,6 +37,16 @@ bun run smoke https://horarios-unmsm.vercel.app
 
 `bun run check` ejecuta Biome, tests de reglas horarias y build de producción. El smoke test valida rutas protegidas y estado de autenticación del despliegue.
 
+Para una verificación operacional contra producción:
+
+```bash
+vercel env pull /tmp/horarios-unmsm-prod.env --environment=production
+bun run ops:verify -- --vercel-env-file /tmp/horarios-unmsm-prod.env --min-teachers 90 --min-linked-teachers 90 --min-active-courses 200
+rm -f /tmp/horarios-unmsm-prod.env
+```
+
+El verificador revisa rutas públicas, env vars críticas, schema, conteos de Neon e invariantes de disponibilidad y cupos sin imprimir secretos.
+
 ## Funciones
 
 - Autenticación por correo con Clerk.
