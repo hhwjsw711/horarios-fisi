@@ -30,9 +30,12 @@ const envFile =
   process.env.VERIFY_ENV_FILE;
 if (envFile) {
   loadEnvFile(envFile);
-  if (!process.env.DATABASE_URL?.trim()) {
-    throw new Error("Env file did not provide DATABASE_URL.");
-  }
+}
+
+if (!process.env.DATABASE_URL?.trim()) {
+  throw new Error(
+    "DATABASE_URL is required. If it is sensitive in Vercel, provide it from Neon before running this verifier.",
+  );
 }
 
 const baseUrl = (

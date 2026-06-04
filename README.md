@@ -41,11 +41,12 @@ Para una verificación operacional contra producción:
 
 ```bash
 vercel env pull /tmp/horarios-unmsm-prod.env --environment=production
-bun run ops:verify -- --vercel-env-file /tmp/horarios-unmsm-prod.env --min-teachers 90 --min-linked-teachers 90 --min-active-courses 200
+DATABASE_URL="$(neonctl connection-string <branch> --project-id <project> --role-name <app-role> --database-name neondb --pooled --ssl require --no-color)" \
+  bun run ops:verify -- --vercel-env-file /tmp/horarios-unmsm-prod.env --min-teachers 90 --min-linked-teachers 90 --min-active-courses 200
 rm -f /tmp/horarios-unmsm-prod.env
 ```
 
-El verificador revisa rutas públicas, env vars críticas, schema, conteos de Neon e invariantes de disponibilidad y cupos sin imprimir secretos.
+El verificador revisa rutas públicas, env vars críticas, schema, conteos de Neon e invariantes de disponibilidad y cupos sin imprimir secretos. `DATABASE_URL` se pasa por entorno porque en Vercel debe estar marcada como sensitive y no se descarga con `env pull`.
 
 ## Funciones
 

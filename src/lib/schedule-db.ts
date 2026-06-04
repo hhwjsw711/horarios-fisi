@@ -508,7 +508,7 @@ export async function syncClerkUser(input: ClerkUserSyncInput) {
 }
 
 export async function deleteClerkUser(clerkUserId: string) {
-  await ensureScheduleSchema();
+  await ensureSeeded();
   const sql = getSql();
   await sql.query("delete from app_users where clerk_user_id = $1", [
     clerkUserId,
@@ -983,13 +983,28 @@ async function ensureSeeded() {
 
 async function prepareScheduleData() {
   const sql = getSql();
-  await ensureScheduleSchema();
+  if (process.env.NODE_ENV === "production") {
+    const verification = await verifyScheduleSchema();
+    const missing = Object.entries(verification)
+      .filter(([, ready]) => !ready)
+      .map(([name]) => name);
+    if (missing.length) {
+      throw new Error(
+        `Schedule database is not migrated: ${missing.join(", ")}.`,
+      );
+    }
+  } else {
+    await ensureScheduleSchema();
+  }
   const rows = (await sql.query(
     "select count(*)::int as count from courses",
   )) as {
     count: number;
   }[];
   if (Number(rows[0]?.count ?? 0) === 0) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Schedule course catalog is empty.");
+    }
     await seedCourseCatalog();
   }
 }
