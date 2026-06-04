@@ -82,6 +82,10 @@ export type ScheduleUser = {
   role: AppRole;
   school: string;
   onboardingComplete: boolean;
+  lastSeenAt?: string;
+  teacherCode?: string;
+  teacherCategory?: string;
+  academicDegree?: string;
   teacherStatus: TeacherProfile["status"] | null;
   updatedAt: string;
   createdAt: string;
@@ -112,6 +116,10 @@ type AppUserRow = {
   role: AppRole;
   school: string;
   code: string;
+  last_seen_at?: string | null;
+  teacher_code?: string | null;
+  category?: string | null;
+  academic_degree?: string | null;
   created_at?: string;
   updated_at?: string;
   teacher_status?: TeacherProfile["status"] | null;
@@ -209,6 +217,7 @@ export async function ensureScheduleSchema() {
       role text not null default 'docente' check (role in ('docente', 'direccion', 'admin')),
       school text not null default 'Ing. de Sistemas',
       code text not null default '',
+      last_seen_at timestamptz,
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     )
@@ -306,6 +315,9 @@ export async function ensureScheduleSchema() {
     "alter table app_users add column if not exists image_url text not null default ''",
   );
   await sql.query(
+    "alter table app_users add column if not exists last_seen_at timestamptz",
+  );
+  await sql.query(
     "alter table app_users drop constraint if exists app_users_role_check",
   );
   await sql.query(
@@ -366,7 +378,7 @@ export async function verifyScheduleSchema() {
       select column_name
       from information_schema.columns
       where table_name = 'app_users'
-        and column_name in ('image_url')
+        and column_name in ('image_url', 'last_seen_at')
       order by column_name
     `,
   )) as { column_name: string }[];
@@ -410,6 +422,7 @@ export async function verifyScheduleSchema() {
   return {
     appUsersAdminRole: roleConstraint.includes("admin"),
     appUsersImageUrlColumn: appUserColumnNames.has("image_url"),
+    appUsersLastSeenAtColumn: appUserColumnNames.has("last_seen_at"),
     approvedAtColumn: teacherColumnNames.has("approved_at"),
     reviewNoteColumn: teacherColumnNames.has("review_note"),
     submittedAtColumn: teacherColumnNames.has("submitted_at"),
@@ -1635,6 +1648,10 @@ async function readUsers(): Promise<ScheduleUser[]> {
       au.role,
       au.school,
       au.code,
+      au.last_seen_at::text,
+      coalesce(tp.teacher_code, nullif(au.code, '')) as teacher_code,
+      tp.category,
+      tp.academic_degree,
       au.created_at::text,
       au.updated_at::text,
       tp.status as teacher_status
@@ -1651,7 +1668,11 @@ async function readUsers(): Promise<ScheduleUser[]> {
     name: row.name,
     role: row.role,
     school: row.school,
-    onboardingComplete: row.code.trim().length > 0,
+    onboardingComplete: Boolean(row.last_seen_at),
+    lastSeenAt: row.last_seen_at ?? undefined,
+    teacherCode: row.teacher_code?.trim() || undefined,
+    teacherCategory: row.category?.trim() || undefined,
+    academicDegree: row.academic_degree?.trim() || undefined,
     teacherStatus: row.teacher_status ?? null,
     createdAt: row.created_at ?? "",
     updatedAt: row.updated_at ?? "",
@@ -1711,6 +1732,10 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
         role: "admin",
         school: "Ing. de Sistemas",
         onboardingComplete: true,
+        lastSeenAt: new Date().toISOString(),
+        teacherCode: "PREVIEW",
+        teacherCategory: "Admin",
+        academicDegree: "No aplica",
         teacherStatus: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1723,6 +1748,10 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
         role: "docente",
         school: "Ing. de Sistemas",
         onboardingComplete: true,
+        lastSeenAt: new Date().toISOString(),
+        teacherCode: seedTeachers[0].teacherCode,
+        teacherCategory: seedTeachers[0].category,
+        academicDegree: seedTeachers[0].academicDegree,
         teacherStatus: seedTeachers[0].status,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1735,6 +1764,10 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
         role: "docente",
         school: "Contabilidad",
         onboardingComplete: true,
+        lastSeenAt: new Date().toISOString(),
+        teacherCode: seedTeachers[2].teacherCode,
+        teacherCategory: seedTeachers[2].category,
+        academicDegree: seedTeachers[2].academicDegree,
         teacherStatus: seedTeachers[2].status,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1782,7 +1815,7 @@ async function ensureUser(identity: ScheduleIdentity) {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      insert into app_users (clerk_user_id, email, name, image_url, role, code)
+      insert into app_users (clerk_user_id, email, name, image_url, role, code, last_seen_at)
       values (
         $1,
         $2,
@@ -1793,12 +1826,14 @@ async function ensureUser(identity: ScheduleIdentity) {
           when $5::text = 'admin' then 'ADMIN'
           when $5::text = 'direccion' then 'DIRECCION'
           else ''
-        end
+        end,
+        now()
       )
       on conflict (clerk_user_id) do update set
         email = excluded.email,
         name = excluded.name,
         image_url = excluded.image_url,
+        last_seen_at = now(),
         role = case
           when $5::text is not null then excluded.role
           else app_users.role

@@ -16,6 +16,7 @@
     "db:import:fisi": "bun scripts/import-fisi.ts",
     "db:import:teacher-courses": "bun scripts/import-teacher-courses.ts",
     "clerk:backfill:fisi": "bun scripts/backfill-clerk-fisi-users.ts",
+    "clerk:backfill:last-seen": "bun scripts/backfill-clerk-last-seen.ts",
     "clerk:set-admins": "bun scripts/set-admin-users.ts",
     "smoke": "bun scripts/smoke.ts",
     "ops:verify": "bun scripts/verify-production.ts",

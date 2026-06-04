@@ -2403,9 +2403,7 @@ function UsersAccessView({
     (user) => user.role === "direccion",
   ).length;
   const teacherCount = users.filter((user) => user.role === "docente").length;
-  const pendingOnboarding = users.filter(
-    (user) => !user.onboardingComplete,
-  ).length;
+  const pendingAccess = users.filter((user) => !user.onboardingComplete).length;
   const filteredUsers = filterUsers(users, {
     onboardingFilter,
     query,
@@ -2431,7 +2429,7 @@ function UsersAccessView({
                 Usuarios institucionales
               </CardTitle>
               <CardDescription className="truncate">
-                Roles, escuelas y estado de onboarding.
+                Roles, escuelas, padrón docente e ingreso real.
               </CardDescription>
             </div>
             <Badge variant="secondary">
@@ -2471,14 +2469,14 @@ function UsersAccessView({
               }
             >
               <SelectTrigger className="w-full" size="sm">
-                <SelectValue placeholder="Onboarding" />
+                <SelectValue placeholder="Ingreso" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Onboarding</SelectLabel>
-                  <SelectItem value="all">Todo onboarding</SelectItem>
-                  <SelectItem value="complete">Completo</SelectItem>
-                  <SelectItem value="pending">Pendiente</SelectItem>
+                  <SelectLabel>Ingreso</SelectLabel>
+                  <SelectItem value="all">Todo ingreso</SelectItem>
+                  <SelectItem value="complete">Ya ingresó</SelectItem>
+                  <SelectItem value="pending">Sin ingreso</SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -2515,8 +2513,8 @@ function UsersAccessView({
           <Info />
           <AlertTitle>Regla de seguridad</AlertTitle>
           <AlertDescription>
-            El sistema mantiene al menos un usuario Admin. Pendientes de
-            onboarding: {pendingOnboarding}.
+            El sistema mantiene al menos un usuario Admin. Sin ingreso:{" "}
+            {pendingAccess}.
           </AlertDescription>
         </Alert>
       </aside>
@@ -2557,7 +2555,7 @@ function UsersAccessTable({
           </EmptyTitle>
           <EmptyDescription>
             {filtersActive
-              ? "Ajusta búsqueda, rol u onboarding para ver más usuarios."
+              ? "Ajusta búsqueda, rol o ingreso para ver más usuarios."
               : "Los usuarios aparecerán después de iniciar sesión."}
           </EmptyDescription>
         </EmptyHeader>
@@ -2574,13 +2572,14 @@ function UsersAccessTable({
 
   return (
     <ScrollArea scrollbarGutter>
-      <Table className="text-sm">
+      <Table className="min-w-[1180px] text-sm">
         <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow className="h-9">
-            <TableHead className="h-9 min-w-[260px] px-2">Usuario</TableHead>
+            <TableHead className="h-9 min-w-[250px] px-2">Usuario</TableHead>
+            <TableHead className="h-9 w-52 px-2">Padrón</TableHead>
             <TableHead className="h-9 w-40 px-2">Rol</TableHead>
             <TableHead className="h-9 w-56 px-2">Escuela</TableHead>
-            <TableHead className="h-9 w-32 px-2">Onboarding</TableHead>
+            <TableHead className="h-9 w-36 px-2">Ingreso</TableHead>
             <TableHead className="h-9 w-32 px-2">Horario</TableHead>
             <TableHead className="h-9 w-36 px-2 text-right">
               Actualizado
@@ -2612,6 +2611,19 @@ function UsersAccessTable({
                       <div className="truncate text-muted-foreground text-xs">
                         {user.email}
                       </div>
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="px-2 py-1">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium tabular-nums">
+                      {user.teacherCode ?? "Sin código"}
+                    </div>
+                    <div className="truncate text-muted-foreground text-xs">
+                      {user.teacherCategory ?? "Sin categoría"}
+                    </div>
+                    <div className="truncate text-muted-foreground text-xs">
+                      {user.academicDegree ?? "Sin grado académico"}
                     </div>
                   </div>
                 </TableCell>
@@ -2667,8 +2679,13 @@ function UsersAccessTable({
                   <Badge
                     variant={user.onboardingComplete ? "default" : "secondary"}
                   >
-                    {user.onboardingComplete ? "Completo" : "Pendiente"}
+                    {user.onboardingComplete ? "Ingresó" : "Sin ingreso"}
                   </Badge>
+                  <div className="mt-0.5 text-muted-foreground text-xs tabular-nums">
+                    {user.lastSeenAt
+                      ? formatEventDate(user.lastSeenAt)
+                      : "Nunca"}
+                  </div>
                 </TableCell>
                 <TableCell className="px-2 py-1">
                   {user.teacherStatus ? (
@@ -4086,8 +4103,11 @@ function filterUsers(
       user.email,
       roleLabel(user.role),
       user.school,
+      user.teacherCode ?? "",
+      user.teacherCategory ?? "",
+      user.academicDegree ?? "",
       user.teacherStatus ? statusLabel(user.teacherStatus) : "No aplica",
-      user.onboardingComplete ? "Completo" : "Pendiente",
+      user.onboardingComplete ? "Ingresó" : "Sin ingreso",
     ]
       .join(" ")
       .toLowerCase()
