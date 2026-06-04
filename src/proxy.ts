@@ -13,12 +13,16 @@ const isDevelopmentBypassRoute = createRouteMatcher([
   "/api/schedule(.*)",
 ]);
 
+const isScheduleApiRoute = createRouteMatcher(["/api/schedule(.*)"]);
 const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)"]);
 
 const clerkProxy = clerkMiddleware(
   async (auth, request) => {
+    if (isScheduleApiRoute(request)) {
+      return NextResponse.next();
+    }
     if (!isPublicRoute(request)) {
-      await auth.protect();
+      await auth.protect({ unauthenticatedUrl: "/sign-in" });
     }
   },
   {
