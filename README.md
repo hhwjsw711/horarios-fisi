@@ -48,6 +48,24 @@ rm -f /tmp/horarios-unmsm-prod.env
 
 El verificador revisa rutas públicas, env vars críticas, schema, conteos de Neon e invariantes de disponibilidad y cupos sin imprimir secretos. `DATABASE_URL` se pasa por entorno porque en Vercel debe estar marcada como sensitive y no se descarga con `env pull`.
 
+## Carga Docente
+
+Los planes de estudio y padrón FISI no incluyen una matriz docente-curso. Cuando Dirección entregue esa matriz, se carga con CSV validado:
+
+```csv
+teacher_code,teacher_email,course_code,school,position
+012345,docente@unmsm.edu.pe,202W0701,Ing. de Sistemas,1
+```
+
+Columnas aceptadas para docente: `teacher_id`, `teacher_code`, `teacher_email`. Columnas aceptadas para curso: `course_id`, `course_code`, `school`. Si un código de curso existe en más de una escuela, el CSV debe incluir `school` o `course_id`.
+
+```bash
+bun run db:import:teacher-courses carga-docente.csv
+bun run db:import:teacher-courses carga-docente.csv --apply --replace-teachers
+```
+
+Sin `--apply`, el importador solo valida. Con `--replace-teachers`, reemplaza la carga de los docentes incluidos en el archivo y respeta cupos por clase docente.
+
 ## Funciones
 
 - Autenticación por correo con Clerk.

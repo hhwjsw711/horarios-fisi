@@ -14,6 +14,7 @@
     "check": "bun run lint && bun run test && bun run build",
     "db:migrate": "bun scripts/migrate.ts",
     "db:import:fisi": "bun scripts/import-fisi.ts",
+    "db:import:teacher-courses": "bun scripts/import-teacher-courses.ts",
     "clerk:backfill:fisi": "bun scripts/backfill-clerk-fisi-users.ts",
     "smoke": "bun scripts/smoke.ts",
     "ops:verify": "bun scripts/verify-production.ts",
