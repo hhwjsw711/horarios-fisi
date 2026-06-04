@@ -4,6 +4,9 @@
   "description": "Registro y revisión de disponibilidad docente para UNMSM.",
   "private": false,
   "license": "MIT",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
