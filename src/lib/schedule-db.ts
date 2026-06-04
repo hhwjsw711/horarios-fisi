@@ -413,7 +413,11 @@ export async function getSchedulePayload(
   await ensureSeeded();
   const user = await ensureUser(identity);
   const profileId = identity.clerkUserId;
-  const profile = await ensureTeacherProfile(profileId, identity);
+  const profile =
+    (await linkOfficialTeacherProfile(identity)) ??
+    (user.role === "direccion"
+      ? administrativeProfile(user)
+      : await ensureTeacherProfile(profileId, identity));
   const catalog = await readCourseCatalog();
   const schoolOptions = await readSchools();
   const settings = await readSettings();
@@ -1545,24 +1549,11 @@ async function ensureTeacherProfile(
   if (identity.preview) {
     return seedTeachers[0];
   }
-  const sql = getSql();
-  const officialRows = (await sql.query(
-    `
-      update teacher_profiles
-      set clerk_user_id = $1,
-          updated_at = case
-            when clerk_user_id is distinct from $1 then now()
-            else updated_at
-          end
-      where lower(email) = lower($2)
-        and (clerk_user_id is null or clerk_user_id = $1)
-      returning id
-    `,
-    [identity.clerkUserId, identity.email],
-  )) as { id: string }[];
-  if (officialRows[0]) {
-    return readTeacher(officialRows[0].id);
+  const officialProfile = await linkOfficialTeacherProfile(identity);
+  if (officialProfile) {
+    return officialProfile;
   }
+  const sql = getSql();
   await sql.query(
     `
       insert into teacher_profiles (id, clerk_user_id, name, email, contract, status)
@@ -1582,12 +1573,56 @@ async function ensureTeacherProfile(
   return readTeacher(profileId);
 }
 
+async function linkOfficialTeacherProfile(identity: ScheduleIdentity) {
+  if (identity.preview) {
+    return seedTeachers[0];
+  }
+  const sql = getSql();
+  const officialRows = (await sql.query(
+    `
+      update teacher_profiles
+      set clerk_user_id = $1,
+          updated_at = case
+            when clerk_user_id is distinct from $1 then now()
+            else updated_at
+          end
+      where lower(email) = lower($2)
+        and (clerk_user_id is null or clerk_user_id = $1)
+      returning id
+    `,
+    [identity.clerkUserId, identity.email],
+  )) as { id: string }[];
+  if (officialRows[0]) {
+    return readTeacher(officialRows[0].id);
+  }
+  return null;
+}
+
+function administrativeProfile(user: AppUserRow): TeacherProfile {
+  return {
+    id: user.clerk_user_id,
+    name: user.name,
+    email: user.email,
+    contract: "full",
+    status: "borrador",
+    courses: [],
+    availability: [],
+  };
+}
+
 async function getProfileId(identity: ScheduleIdentity) {
   await ensureSeeded();
   if (identity.preview) {
     return "me";
   }
-  await ensureUser(identity);
+  const user = await ensureUser(identity);
+  const officialProfile = await linkOfficialTeacherProfile(identity);
+  if (officialProfile) {
+    return officialProfile.id;
+  }
+  if (user.role === "direccion") {
+    throw new ScheduleError("Tu cuenta no tiene perfil docente asignado.", 403);
+  }
   const profile = await ensureTeacherProfile(identity.clerkUserId, identity);
   return profile.id;
 }
