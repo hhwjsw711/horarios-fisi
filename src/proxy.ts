@@ -22,7 +22,9 @@ const clerkProxy = clerkMiddleware(
       return NextResponse.next();
     }
     if (!isPublicRoute(request)) {
-      await auth.protect({ unauthenticatedUrl: "/sign-in" });
+      await auth.protect({
+        unauthenticatedUrl: new URL("/sign-in", request.url).toString(),
+      });
     }
   },
   {
