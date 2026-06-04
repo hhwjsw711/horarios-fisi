@@ -97,7 +97,7 @@ import {
   SidebarSeparator,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -190,6 +190,10 @@ type ApiError = {
 };
 
 const schedulePayloadCache = new Map<string, SchedulePayload>();
+const loadingScheduleCells = Array.from(
+  { length: 105 },
+  (_, index) => `loading-schedule-cell-${index}`,
+);
 
 async function readApiError(response: Response, fallback: string) {
   try {
@@ -1323,11 +1327,88 @@ function ThemeToggle() {
 
 function AppLoading() {
   return (
-    <main className="flex h-screen items-center justify-center bg-background text-foreground">
-      <div className="flex items-center gap-3 text-muted-foreground">
-        <Spinner />
-        <span>Cargando horarios institucionales</span>
-      </div>
+    <main className="grid h-screen overflow-hidden bg-background text-foreground lg:grid-cols-[256px_minmax(0,1fr)]">
+      <aside className="hidden min-h-0 border-sidebar-border border-r bg-sidebar text-sidebar-foreground lg:flex lg:flex-col">
+        <div className="flex h-16 shrink-0 items-center gap-3 border-sidebar-border border-b px-3">
+          <Skeleton className="size-10 rounded-md bg-sidebar-accent" />
+          <div className="min-w-0 space-y-2">
+            <Skeleton className="h-3 w-20 bg-sidebar-accent" />
+            <Skeleton className="h-5 w-32 bg-sidebar-accent" />
+          </div>
+        </div>
+        <div className="space-y-6 p-3">
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-14 bg-sidebar-accent" />
+            <Skeleton className="h-5 w-24 bg-sidebar-accent" />
+            <Skeleton className="h-4 w-16 bg-sidebar-accent" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-16 bg-sidebar-accent" />
+            <Skeleton className="h-10 w-full bg-sidebar-accent" />
+            <Skeleton className="h-10 w-full bg-sidebar-accent" />
+            <Skeleton className="h-10 w-full bg-sidebar-accent" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-20 bg-sidebar-accent" />
+            <Skeleton className="h-2 w-full rounded-full bg-sidebar-accent" />
+          </div>
+        </div>
+      </aside>
+      <section className="grid min-h-0 grid-rows-[64px_minmax(0,1fr)]">
+        <header className="flex items-center justify-between border-b bg-card px-3 md:px-5">
+          <div className="min-w-0 space-y-2">
+            <Skeleton className="h-3 w-52" />
+            <Skeleton className="h-7 w-64" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-7 w-24 rounded-full" />
+            <Skeleton className="size-8 rounded-full" />
+          </div>
+        </header>
+        <div className="grid min-h-0 gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_330px]">
+          <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border bg-card">
+            <div className="flex items-center justify-between border-b p-3">
+              <div className="space-y-2">
+                <Skeleton className="h-7 w-56" />
+                <Skeleton className="h-4 w-72" />
+              </div>
+              <Skeleton className="h-9 w-36" />
+            </div>
+            <div className="grid min-h-0 grid-cols-[92px_repeat(6,minmax(0,1fr))] grid-rows-[44px_repeat(14,minmax(0,1fr))]">
+              {loadingScheduleCells.map((key) => (
+                <div className="border-border border-r border-b p-2" key={key}>
+                  <Skeleton className="h-full w-full rounded-sm" />
+                </div>
+              ))}
+            </div>
+          </section>
+          <aside className="hidden min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-3 xl:grid">
+            <section className="overflow-hidden rounded-lg border bg-card">
+              <div className="space-y-2 border-b p-3">
+                <Skeleton className="h-6 w-44" />
+                <Skeleton className="h-4 w-56" />
+              </div>
+              <div className="space-y-2 p-3">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+              </div>
+            </section>
+            <section className="rounded-lg border bg-card p-3">
+              <div className="mb-3 flex items-center justify-between">
+                <Skeleton className="h-6 w-36" />
+                <Skeleton className="h-6 w-20 rounded-full" />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+              </div>
+            </section>
+          </aside>
+        </div>
+      </section>
     </main>
   );
 }
