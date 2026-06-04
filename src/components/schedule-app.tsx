@@ -120,6 +120,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { visibleCoursesForSchool } from "@/lib/schedule-courses";
 import {
   type ContractKey,
   type Course,
@@ -225,14 +226,14 @@ export function ScheduleApp({
     }
     const payload = (await response.json()) as SchedulePayload;
     setData(payload);
-    const activeCatalog = payload.catalog.filter(
-      (course) => course.active !== false,
-    );
-    setSchool(payload.onboarding.school || payload.schools[0] || schools[0]);
+    const nextSchool =
+      payload.onboarding.school || payload.schools[0] || schools[0];
+    const visibleCatalog = visibleCoursesForSchool(payload.catalog, nextSchool);
+    setSchool(nextSchool);
     setCourseId((current) =>
-      activeCatalog.some((course) => course.id === current)
+      visibleCatalog.some((course) => course.id === current)
         ? current
-        : (activeCatalog[0]?.id ?? current),
+        : (visibleCatalog[0]?.id ?? current),
     );
     setSelectedTeacherId((current) => current ?? payload.profile.id);
   }, [endpoint]);
@@ -246,6 +247,19 @@ export function ScheduleApp({
       router.replace("/onboarding");
     }
   }, [data, preview, router]);
+
+  useEffect(() => {
+    if (!data) {
+      return;
+    }
+    const visibleCatalog = visibleCoursesForSchool(data.catalog, school);
+    if (
+      visibleCatalog.length &&
+      !visibleCatalog.some((course) => course.id === courseId)
+    ) {
+      setCourseId(visibleCatalog[0].id);
+    }
+  }, [courseId, data, school]);
 
   useEffect(() => {
     if (!data || view !== "direccion" || !data.canUseDirection) {
@@ -323,9 +337,7 @@ export function ScheduleApp({
     (course) => course.active !== false,
   );
   const schoolOptions = data.schools.length ? data.schools : schools;
-  const catalogForSchool = activeCatalog.filter(
-    (course) => course.school === school || course.school === "Transversal",
-  );
+  const catalogForSchool = visibleCoursesForSchool(activeCatalog, school);
   const completion = completionFor(profile, validation);
   const canUseDirection = data.canUseDirection;
   const showClerkControls = process.env.NODE_ENV === "production" && !preview;
@@ -379,7 +391,7 @@ export function ScheduleApp({
       toast.error("El periodo académico está cerrado.");
       return;
     }
-    const course = activeCatalog.find((item) => item.id === courseId);
+    const course = catalogForSchool.find((item) => item.id === courseId);
     if (!course) {
       return;
     }
@@ -1231,6 +1243,30 @@ function DocenteView({
   setSchool: (school: string) => void;
   validation: Validation;
 }) {
+  const selectedCourse = catalogForSchool.find(
+    (course) => course.id === courseId,
+  );
+  const selectedCourseAlreadyAdded = selectedCourse
+    ? profile.courses.some((course) => course.id === selectedCourse.id)
+    : false;
+  const selectedCourseLimitReached = Boolean(
+    selectedCourse &&
+      !selectedCourse.isThesis &&
+      validation.countedCourses >= contractRules[profile.contract].maxCourses,
+  );
+  const addCourseDisabled =
+    periodClosed ||
+    !selectedCourse ||
+    selectedCourseAlreadyAdded ||
+    selectedCourseLimitReached;
+  const addCourseLabel = periodClosed
+    ? "Cerrado"
+    : selectedCourseAlreadyAdded
+      ? "Agregado"
+      : selectedCourseLimitReached
+        ? "Cupo lleno"
+        : "Agregar";
+
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_330px]">
       <Card className="min-h-0 overflow-hidden">
@@ -1287,6 +1323,8 @@ function DocenteView({
       <aside className="grid min-h-0 gap-3 xl:grid-rows-[minmax(0,1fr)_auto]">
         <CoursesEditorCard
           catalogForSchool={catalogForSchool}
+          addCourseDisabled={addCourseDisabled}
+          addCourseLabel={addCourseLabel}
           courseId={courseId}
           courses={profile.courses}
           disabled={periodClosed}
@@ -1310,6 +1348,8 @@ function DocenteView({
 }
 
 function CoursesEditorCard({
+  addCourseDisabled,
+  addCourseLabel,
   catalogForSchool,
   courseId,
   courses,
@@ -1321,6 +1361,8 @@ function CoursesEditorCard({
   setCourseId,
   setSchool,
 }: {
+  addCourseDisabled: boolean;
+  addCourseLabel: string;
   catalogForSchool: Course[];
   courseId: string;
   courses: Course[];
@@ -1379,9 +1421,9 @@ function CoursesEditorCard({
                 </SelectGroup>
               </SelectContent>
             </Select>
-            <Button disabled={disabled} onClick={handleAddCourse}>
+            <Button disabled={addCourseDisabled} onClick={handleAddCourse}>
               <Plus data-icon="inline-start" />
-              Agregar
+              {addCourseLabel}
             </Button>
           </div>
         </div>
@@ -2157,14 +2199,14 @@ function AuditView({ events }: { events: ScheduleEvent[] }) {
               Auditoría institucional
             </CardTitle>
             <CardDescription className="truncate">
-              Historial global de docentes, accesos, catálogo y periodo.
+              Historial institucional.
             </CardDescription>
           </div>
-          <div className="grid shrink-0 gap-2 md:grid-cols-[220px_220px_auto]">
+          <div className="grid w-full shrink-0 gap-2 md:grid-cols-[220px_220px_auto] lg:w-auto">
             <Input
               aria-label="Buscar auditoría"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar actor, docente o detalle"
+              placeholder="Buscar auditoría"
               value={query}
             />
             <Select value={eventType} onValueChange={setEventType}>
@@ -2237,7 +2279,7 @@ function AuditEventsTable({ events }: { events: ScheduleEvent[] }) {
               <TableCell className="px-2 py-1">
                 <div className="font-medium">{eventLabel(event.eventType)}</div>
                 <div className="text-muted-foreground text-xs">
-                  {event.eventType}
+                  {eventScopeLabel(event.eventType)}
                 </div>
               </TableCell>
               <TableCell className="px-2 py-1">{event.actorName}</TableCell>
@@ -3271,8 +3313,32 @@ function eventLabel(eventType: string) {
     "teacher.submitted_schedule": "Horario enviado",
     "onboarding.completed": "Perfil configurado",
     "access.user_updated": "Acceso actualizado",
+    "catalog.course_status_changed": "Estado de curso actualizado",
+    "catalog.course_upserted": "Curso guardado",
   };
   return labels[eventType] ?? eventType;
+}
+
+function eventScopeLabel(eventType: string) {
+  if (eventType.startsWith("teacher.")) {
+    return "Docente";
+  }
+  if (eventType.startsWith("director.")) {
+    return "Dirección";
+  }
+  if (eventType.startsWith("catalog.")) {
+    return "Catálogo";
+  }
+  if (eventType.startsWith("access.")) {
+    return "Accesos";
+  }
+  if (eventType.startsWith("settings.") || eventType.startsWith("period.")) {
+    return "Periodo";
+  }
+  if (eventType.startsWith("onboarding.")) {
+    return "Onboarding";
+  }
+  return "Sistema";
 }
 
 function eventSummary(event: ScheduleEvent) {
@@ -3287,6 +3353,14 @@ function eventSummary(event: ScheduleEvent) {
   }
   if (typeof event.metadata.closedAt === "string") {
     return event.metadata.closedAt;
+  }
+  if (typeof event.metadata.name === "string") {
+    const school =
+      typeof event.metadata.school === "string" ? event.metadata.school : "";
+    return [event.metadata.name, school].filter(Boolean).join(" · ");
+  }
+  if (typeof event.metadata.active === "boolean") {
+    return event.metadata.active ? "Curso activo" : "Curso suspendido";
   }
   if (typeof event.metadata.contract === "string") {
     return contractRules[event.metadata.contract as ContractKey]?.label;
