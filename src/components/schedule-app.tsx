@@ -160,6 +160,7 @@ type TeacherStatusFilter = TeacherProfile["status"] | "all";
 type UserRoleFilter = AppRole | "all";
 type UserOnboardingFilter = "all" | "complete" | "pending";
 type CourseStatusFilter = "all" | "active" | "suspended";
+type TeacherStatusCounts = Record<TeacherProfile["status"], number>;
 
 type ScheduleAction =
   | { action: "setContract"; contract: ContractKey }
@@ -348,6 +349,7 @@ export function ScheduleApp({
   const reviewCompletion = data.teachers.length
     ? Math.round((approvedCount / data.teachers.length) * 100)
     : 0;
+  const reviewCounts = countTeachersByStatus(data.teachers);
   const sidebarCompletion =
     canUseDirection && view !== "docente" ? reviewCompletion : completion;
   const sidebarCompletionLabel =
@@ -629,6 +631,7 @@ export function ScheduleApp({
           teacherQuery={teacherQuery}
           teacherStatusFilter={teacherStatusFilter}
           teachers={filteredTeachers}
+          reviewCounts={reviewCounts}
           totalTeacherCount={allTeachers.length}
           validation={selectedValidation}
         />
@@ -1380,14 +1383,14 @@ function CoursesEditorCard({
         <CardTitle className="truncate text-base">
           Cursos seleccionados
         </CardTitle>
-        <CardDescription className="truncate">
+        <CardDescription className="hidden truncate sm:block">
           Carga permitida por contrato.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-1.5 px-2 py-1.5">
         <div className="grid gap-1.5">
           <Select disabled={disabled} value={school} onValueChange={setSchool}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full" size="sm">
               <SelectValue placeholder="Escuela" />
             </SelectTrigger>
             <SelectContent>
@@ -1407,7 +1410,7 @@ function CoursesEditorCard({
               value={courseId}
               onValueChange={setCourseId}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full" size="sm">
                 <SelectValue placeholder="Curso" />
               </SelectTrigger>
               <SelectContent>
@@ -1421,7 +1424,11 @@ function CoursesEditorCard({
                 </SelectGroup>
               </SelectContent>
             </Select>
-            <Button disabled={addCourseDisabled} onClick={handleAddCourse}>
+            <Button
+              disabled={addCourseDisabled}
+              onClick={handleAddCourse}
+              size="sm"
+            >
               <Plus data-icon="inline-start" />
               {addCourseLabel}
             </Button>
@@ -2327,7 +2334,7 @@ function TeacherStatusPanel({
               )}
               Cierre docente
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="hidden sm:block">
               {rule.requiredHours} h · {rule.requiredBlockDays} bloques ·{" "}
               {rule.maxCourses} cursos
             </CardDescription>
@@ -2411,6 +2418,7 @@ function DirectorView({
   teacherQuery,
   teacherStatusFilter,
   teachers,
+  reviewCounts,
   totalTeacherCount,
   validation,
 }: {
@@ -2434,6 +2442,7 @@ function DirectorView({
   teacherQuery: string;
   teacherStatusFilter: TeacherStatusFilter;
   teachers: TeacherProfile[];
+  reviewCounts: TeacherStatusCounts;
   totalTeacherCount: number;
   validation: Validation;
 }) {
@@ -2444,7 +2453,7 @@ function DirectorView({
   const selectedTeacherUnavailable = !selectedTeacherVisible;
 
   return (
-    <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_320px]">
+    <section className="grid h-full min-h-0 grid-rows-[minmax(220px,32vh)_minmax(0,1fr)] gap-3 overflow-hidden p-3 xl:grid-cols-[280px_minmax(0,1fr)] xl:grid-rows-none 2xl:grid-cols-[280px_minmax(0,1fr)_320px]">
       <Card className="min-h-0 overflow-hidden">
         <CardHeader className="grid gap-1 border-b px-2 py-1">
           <div className="flex items-start justify-between gap-3">
@@ -2490,6 +2499,10 @@ function DirectorView({
               </SelectContent>
             </Select>
           </div>
+          <TeacherQueueMetrics
+            counts={reviewCounts}
+            totalTeacherCount={totalTeacherCount}
+          />
           <Field className="flex-row items-center justify-between gap-2 rounded-md bg-muted/25 px-2 py-0.5">
             <div>
               <FieldLabel className="text-xs">Solo pendientes</FieldLabel>
@@ -2595,8 +2608,7 @@ function DirectorView({
                   {selectedTeacher.name}
                 </CardTitle>
                 <CardDescription className="truncate">
-                  {contractRules[selectedTeacher.contract].label} ·{" "}
-                  {statusLabel(selectedTeacher.status)}
+                  {teacherProfileSummary(selectedTeacher)}
                 </CardDescription>
               </div>
               <Toolbar className="shrink-0 border-0 bg-transparent p-0 shadow-none">
@@ -2647,7 +2659,11 @@ function DirectorView({
               </Toolbar>
             </CardHeader>
             <CardContent className="min-h-0 flex-1 p-0">
-              <ScheduleBoard availability={selectedTeacher.availability} />
+              <ScheduleBoard
+                availability={selectedTeacher.availability}
+                emptyDescription="El docente aún no marcó bloques horarios."
+                emptyLabel="Sin disponibilidad registrada"
+              />
             </CardContent>
           </Card>
         )}
@@ -2668,6 +2684,50 @@ function DirectorView({
         )}
       </aside>
     </section>
+  );
+}
+
+function TeacherQueueMetrics({
+  counts,
+  totalTeacherCount,
+}: {
+  counts: TeacherStatusCounts;
+  totalTeacherCount: number;
+}) {
+  const rows: Array<{
+    label: string;
+    value: number;
+    tone: "default" | "secondary";
+  }> = [
+    { label: "Borrador", value: counts.borrador, tone: "secondary" },
+    { label: "Enviado", value: counts.enviado, tone: "default" },
+    { label: "Obs.", value: counts.observado, tone: "secondary" },
+    { label: "Aprob.", value: counts.aprobado, tone: "default" },
+  ];
+  return (
+    <div className="hidden grid-cols-2 gap-1 md:grid">
+      {rows.map((row) => (
+        <div
+          className="rounded-md border bg-muted/30 px-1.5 py-1"
+          key={row.label}
+        >
+          <div className="truncate text-[10px] text-muted-foreground">
+            {row.label}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-xs tabular-nums">
+              {row.value}
+            </span>
+            <Badge className="h-4 px-1 text-[10px]" variant={row.tone}>
+              {totalTeacherCount
+                ? Math.round((row.value / totalTeacherCount) * 100)
+                : 0}
+              %
+            </Badge>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -2735,7 +2795,12 @@ function CoursesReviewCard({ courses }: { courses: Course[] }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="min-h-0 flex-1 p-0">
-        <CoursesTable compact courses={courses} />
+        <CoursesTable
+          compact
+          courses={courses}
+          emptyDescription="El docente aún no seleccionó cursos para este periodo."
+          emptyTitle="Sin cursos registrados"
+        />
       </CardContent>
     </Card>
   );
@@ -2917,7 +2982,7 @@ function TeacherButton({
         <span className="min-w-0">
           <span className="block truncate font-medium">{teacher.name}</span>
           <span className="block truncate text-muted-foreground text-xs">
-            {teacher.email}
+            {teacherButtonMeta(teacher)}
           </span>
         </span>
       </span>
@@ -2935,17 +3000,21 @@ function TeacherButton({
 
 function ScheduleBoard({
   availability,
+  emptyDescription,
+  emptyLabel,
   interactive = false,
   onToggleSlot,
 }: {
   availability: string[];
+  emptyDescription?: string;
+  emptyLabel?: string;
   interactive?: boolean;
   onToggleSlot?: (day: DayKey, hour: number) => void;
 }) {
   const selected = useMemo(() => new Set(availability), [availability]);
 
   return (
-    <div className="h-full overflow-x-auto overflow-y-hidden">
+    <div className="relative h-full overflow-x-auto overflow-y-hidden">
       <div className="flex h-full min-w-[660px] flex-col">
         <div className="grid h-11 shrink-0 grid-cols-[92px_repeat(6,minmax(94px,1fr))] border-b bg-primary text-primary-foreground text-sm">
           <div className="flex items-center border-r px-3 font-medium">
@@ -2999,6 +3068,16 @@ function ScheduleBoard({
           ))}
         </div>
       </div>
+      {!interactive && emptyLabel && availability.length === 0 ? (
+        <div className="pointer-events-none absolute inset-x-4 top-1/2 mx-auto max-w-sm -translate-y-1/2 rounded-lg border bg-card/92 p-3 text-center shadow-sm backdrop-blur">
+          <div className="font-medium">{emptyLabel}</div>
+          {emptyDescription ? (
+            <div className="mt-1 text-muted-foreground text-xs">
+              {emptyDescription}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3060,10 +3139,14 @@ function RulePanel({
 function CoursesTable({
   compact = false,
   courses,
+  emptyDescription = "Agrega un curso para habilitar la validación.",
+  emptyTitle = "Sin cursos",
   onRemoveCourse,
 }: {
   compact?: boolean;
   courses: Course[];
+  emptyDescription?: string;
+  emptyTitle?: string;
   onRemoveCourse?: (id: string) => void;
 }) {
   if (!courses.length) {
@@ -3073,10 +3156,8 @@ function CoursesTable({
           <BookOpen />
         </EmptyMedia>
         <EmptyHeader>
-          <EmptyTitle>Sin cursos</EmptyTitle>
-          <EmptyDescription>
-            Agrega un curso para habilitar la validación.
-          </EmptyDescription>
+          <EmptyTitle>{emptyTitle}</EmptyTitle>
+          <EmptyDescription>{emptyDescription}</EmptyDescription>
         </EmptyHeader>
         <EmptyContent />
       </Empty>
@@ -3158,6 +3239,18 @@ function CoursesTable({
 
 function completionFor(profile: TeacherProfile, validation: Validation) {
   return completionForRules(profile, validation);
+}
+
+function countTeachersByStatus(
+  teachers: TeacherProfile[],
+): TeacherStatusCounts {
+  return teachers.reduce<TeacherStatusCounts>(
+    (counts, teacher) => {
+      counts[teacher.status] += 1;
+      return counts;
+    },
+    { aprobado: 0, borrador: 0, enviado: 0, observado: 0 },
+  );
 }
 
 function filterTeachers(
@@ -3288,6 +3381,22 @@ function courseMeta(course: Course) {
     course.code,
     course.cycle ? `Ciclo ${course.cycle}` : "",
     course.credits ? `${course.credits} cr.` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function teacherButtonMeta(teacher: TeacherProfile) {
+  return [teacher.teacherCode, teacher.email].filter(Boolean).join(" · ");
+}
+
+function teacherProfileSummary(teacher: TeacherProfile) {
+  return [
+    contractRules[teacher.contract].label,
+    statusLabel(teacher.status),
+    teacher.teacherCode ? `Código ${teacher.teacherCode}` : "",
+    teacher.category,
+    teacher.academicDegree,
   ]
     .filter(Boolean)
     .join(" · ");
