@@ -48,6 +48,7 @@ bun run smoke https://horarios-unmsm.vercel.app
 - Gestión de usuarios, roles y escuelas desde Dirección.
 - Aprobación de horarios y cierre/reapertura de periodo académico.
 - Observaciones administrativas con historial de eventos.
+- Auditoría institucional buscable y exportable a CSV.
 - Exportación de disponibilidad a PDF y Excel.
 
 ## Licencia

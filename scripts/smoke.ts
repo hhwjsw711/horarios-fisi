@@ -27,6 +27,11 @@ const checks = [
     expectedLocation: "/sign-in",
   },
   {
+    path: "/direccion/auditoria",
+    expectedStatus: 307,
+    expectedLocation: "/sign-in",
+  },
+  {
     path: "/direccion/configuracion",
     expectedStatus: 307,
     expectedLocation: "/sign-in",

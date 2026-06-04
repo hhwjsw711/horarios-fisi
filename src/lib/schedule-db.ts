@@ -956,9 +956,7 @@ async function readScheduleEvents(teacherId?: string) {
         se.created_at::text
       from schedule_events se
       left join app_users au on au.clerk_user_id = se.actor_user_id
-      where ($1::text is null and exists (
-        select 1 from teacher_profiles tp where tp.id = se.teacher_id
-      )) or se.teacher_id = $1
+      where $1::text is null or se.teacher_id = $1
       order by se.created_at desc
       limit 100
     `,

@@ -147,7 +147,12 @@ import {
 } from "@/lib/schedule-rules";
 import { cn } from "@/lib/utils";
 
-type ViewKey = "docente" | "direccion" | "configuracion" | "usuarios";
+type ViewKey =
+  | "docente"
+  | "direccion"
+  | "configuracion"
+  | "usuarios"
+  | "auditoria";
 
 type Validation = ScheduleValidation;
 
@@ -550,6 +555,8 @@ export function ScheduleApp({
           schools={schoolOptions}
           users={data.users}
         />
+      ) : view === "auditoria" && canUseDirection ? (
+        <AuditView events={data.events} />
       ) : view === "direccion" && canUseDirection ? (
         <DirectorView
           handleExportPdf={handleExportPdf}
@@ -571,7 +578,8 @@ export function ScheduleApp({
         />
       ) : view === "direccion" ||
         view === "configuracion" ||
-        view === "usuarios" ? (
+        view === "usuarios" ||
+        view === "auditoria" ? (
         <LockedDirectionView />
       ) : (
         <DocenteView
@@ -844,6 +852,17 @@ function AppSidebar({
                   >
                     <UserCog />
                     <span>Usuarios</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
+                    isActive={selectedView === "auditoria"}
+                    render={<Link href="/direccion/auditoria" />}
+                    tooltip="Auditoría"
+                  >
+                    <History />
+                    <span>Auditoría</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
@@ -1171,7 +1190,7 @@ function DocenteView({
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_330px]">
       <Card className="min-h-0 overflow-hidden">
-        <CardHeader className="flex shrink-0 flex-col gap-2 border-b px-3 py-2 md:flex-row md:items-center md:justify-between">
+        <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b px-3 py-1.5 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <CardTitle className="truncate font-serif text-xl">
               Disponibilidad docente
@@ -1271,7 +1290,7 @@ function CoursesEditorCard({
 }) {
   return (
     <Card className="min-h-0 overflow-hidden">
-      <CardHeader className="shrink-0 border-b px-2.5 py-2">
+      <CardHeader className="shrink-0 border-b px-2.5 py-1.5">
         <CardTitle className="truncate text-base">
           Cursos seleccionados
         </CardTitle>
@@ -1427,7 +1446,7 @@ function ConfigurationView({
             Periodo académico, escuelas y cursos.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-2.5 px-2.5 py-2.5">
+        <CardContent className="grid gap-2.5 px-2.5 py-2">
           <Field>
             <FieldLabel>Periodo académico vigente</FieldLabel>
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
@@ -1536,7 +1555,7 @@ function ConfigurationView({
         </CardContent>
       </Card>
       <Card className="min-h-0 overflow-hidden" size="sm">
-        <CardHeader className="flex shrink-0 flex-col gap-2 border-b md:flex-row md:items-center md:justify-between">
+        <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <CardTitle className="truncate font-serif text-xl">
               Configuración de catálogo
@@ -1669,7 +1688,7 @@ function UsersAccessView({
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_300px]">
       <Card className="min-h-0 overflow-hidden" size="sm">
-        <CardHeader className="flex shrink-0 flex-col gap-2 border-b md:flex-row md:items-center md:justify-between">
+        <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <CardTitle className="truncate font-serif text-xl">
               Usuarios institucionales
@@ -1873,6 +1892,147 @@ function UsersAccessTable({
   );
 }
 
+function AuditView({ events }: { events: ScheduleEvent[] }) {
+  const [query, setQuery] = useState("");
+  const [eventType, setEventType] = useState("all");
+  const eventTypes = useMemo(
+    () => Array.from(new Set(events.map((event) => event.eventType))).sort(),
+    [events],
+  );
+  const filteredEvents = useMemo(
+    () =>
+      events.filter((event) => {
+        const matchesType =
+          eventType === "all" || event.eventType === eventType;
+        const normalizedQuery = query.trim().toLowerCase();
+        if (!matchesType) {
+          return false;
+        }
+        if (!normalizedQuery) {
+          return true;
+        }
+        return [
+          event.actorName,
+          event.teacherId,
+          eventLabel(event.eventType),
+          event.eventType,
+          eventSummary(event),
+          JSON.stringify(event.metadata),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery);
+      }),
+    [eventType, events, query],
+  );
+
+  return (
+    <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3">
+      <Card className="min-h-0 overflow-hidden" size="sm">
+        <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <CardTitle className="truncate font-serif text-xl">
+              Auditoría institucional
+            </CardTitle>
+            <CardDescription className="truncate">
+              Historial global de docentes, accesos, catálogo y periodo.
+            </CardDescription>
+          </div>
+          <div className="grid shrink-0 gap-2 md:grid-cols-[220px_220px_auto]">
+            <Input
+              aria-label="Buscar auditoría"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar actor, docente o detalle"
+              value={query}
+            />
+            <Select value={eventType} onValueChange={setEventType}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Tipo de evento" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Tipo de evento</SelectLabel>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {eventTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {eventLabel(type)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Button
+              disabled={!filteredEvents.length}
+              onClick={() => exportAuditCsv(filteredEvents)}
+              variant="outline"
+            >
+              <ArrowDownToLine data-icon="inline-start" />
+              CSV
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="min-h-0 flex-1 p-0">
+          {filteredEvents.length ? (
+            <AuditEventsTable events={filteredEvents} />
+          ) : (
+            <Empty className="h-full py-10">
+              <EmptyMedia variant="icon">
+                <History />
+              </EmptyMedia>
+              <EmptyHeader>
+                <EmptyTitle>Sin eventos</EmptyTitle>
+                <EmptyDescription>
+                  Ajusta búsqueda o tipo de evento.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function AuditEventsTable({ events }: { events: ScheduleEvent[] }) {
+  return (
+    <ScrollArea scrollbarGutter>
+      <Table className="text-sm">
+        <TableHeader className="sticky top-0 z-10 bg-card">
+          <TableRow className="h-9">
+            <TableHead className="h-9 min-w-[180px] px-2">Fecha</TableHead>
+            <TableHead className="h-9 min-w-[220px] px-2">Evento</TableHead>
+            <TableHead className="h-9 min-w-[180px] px-2">Actor</TableHead>
+            <TableHead className="h-9 min-w-[180px] px-2">Referencia</TableHead>
+            <TableHead className="h-9 px-2">Detalle</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {events.map((event) => (
+            <TableRow className="h-11" key={event.id}>
+              <TableCell className="px-2 py-1 text-muted-foreground text-xs tabular-nums">
+                {formatEventDate(event.createdAt)}
+              </TableCell>
+              <TableCell className="px-2 py-1">
+                <div className="font-medium">{eventLabel(event.eventType)}</div>
+                <div className="text-muted-foreground text-xs">
+                  {event.eventType}
+                </div>
+              </TableCell>
+              <TableCell className="px-2 py-1">{event.actorName}</TableCell>
+              <TableCell className="px-2 py-1 text-muted-foreground">
+                {event.teacherId}
+              </TableCell>
+              <TableCell className="px-2 py-1 text-muted-foreground">
+                {eventSummary(event) || "Sin detalle"}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </ScrollArea>
+  );
+}
+
 function TeacherStatusPanel({
   onSubmit,
   periodClosed,
@@ -1889,7 +2049,7 @@ function TeacherStatusPanel({
   const rule = contractRules[profile.contract];
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b px-2.5 py-2">
+      <CardHeader className="border-b px-2.5 py-1.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -2001,7 +2161,7 @@ function DirectorView({
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_320px]">
       <Card className="min-h-0 overflow-hidden">
-        <CardHeader className="border-b px-3 py-2.5">
+        <CardHeader className="border-b px-2.5 py-1.5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <CardTitle className="truncate text-base">
@@ -2013,7 +2173,7 @@ function DirectorView({
             </div>
             <Badge variant="secondary">{teachers.length}</Badge>
           </div>
-          <Field className="mt-2 flex-row items-center justify-between gap-2 rounded-md bg-muted/25 px-2 py-1.5">
+          <Field className="mt-1.5 flex-row items-center justify-between gap-2 rounded-md bg-muted/25 px-2 py-1">
             <div>
               <FieldLabel className="text-xs">Solo pendientes</FieldLabel>
               <FieldDescription>Oculta aprobados.</FieldDescription>
@@ -2056,7 +2216,7 @@ function DirectorView({
       </Card>
       <div className="min-h-0">
         <Card className="h-full min-h-0 overflow-hidden">
-          <CardHeader className="flex shrink-0 flex-col gap-2 border-b px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
+          <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b px-3 py-1.5 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <CardTitle className="truncate font-serif text-xl">
                 {selectedTeacher.name}
@@ -2163,7 +2323,7 @@ function DirectorDetailTabs({
       </TabsList>
       <TabsContent
         value="revision"
-        className="grid min-h-0 gap-3 overflow-y-auto pr-1"
+        className="grid min-h-0 auto-rows-max content-start gap-3 overflow-y-auto pr-1"
       >
         <RulePanel profile={selectedTeacher} validation={validation} />
         <DirectorReviewCard
@@ -2190,7 +2350,7 @@ function DirectorDetailTabs({
 function CoursesReviewCard({ courses }: { courses: Course[] }) {
   return (
     <Card className="min-h-0 overflow-hidden">
-      <CardHeader className="shrink-0 border-b px-3 py-2">
+      <CardHeader className="shrink-0 border-b px-3 py-1.5">
         <CardTitle className="text-base">Cursos del docente</CardTitle>
         <CardDescription>
           Cursos asociados al horario seleccionado.
@@ -2230,13 +2390,13 @@ function DirectorReviewCard({
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b px-3 py-2">
+      <CardHeader className="border-b px-3 py-1.5">
         <CardTitle className="text-base">Decisión de revisión</CardTitle>
         <CardDescription>
           Aprueba el horario o devuélvelo con una nota accionable.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-2 px-3 py-2.5">
+      <CardContent className="grid gap-2 px-3 py-2">
         {selectedTeacher.approvedAt ? (
           <Alert variant="success" className="p-2.5">
             <ShieldCheck />
@@ -2284,7 +2444,7 @@ function DirectorReviewCard({
 function AuditTrailCard({ events }: { events: ScheduleEvent[] }) {
   return (
     <Card className="min-h-0 overflow-hidden">
-      <CardHeader className="border-b px-3 py-2">
+      <CardHeader className="border-b px-3 py-1.5">
         <CardTitle className="flex items-center gap-2 text-base">
           <History className="size-4 text-gold" />
           Auditoría
@@ -2495,14 +2655,14 @@ function RulePanel({
 
   return (
     <Card className="min-h-0 overflow-hidden">
-      <CardHeader className="space-y-0.5 px-3 py-2.5">
+      <CardHeader className="space-y-0 px-3 py-1.5">
         <CardTitle className="flex items-center gap-2 text-base">
           <Info className="size-4 text-gold" />
           Reglas activas
         </CardTitle>
         <CardDescription>{rule.text}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-2.5 px-3 pb-2.5 pt-0 text-sm">
+      <CardContent className="flex flex-col gap-2 px-3 pb-2 pt-0 text-sm">
         {rows.map((row) => (
           <div
             className="flex items-center justify-between gap-3"
@@ -2643,6 +2803,9 @@ function routeLabel(view: ViewKey) {
   if (view === "usuarios") {
     return "Usuarios";
   }
+  if (view === "auditoria") {
+    return "Auditoría";
+  }
   return view === "direccion" ? "Dirección" : "Docente";
 }
 
@@ -2699,6 +2862,36 @@ function formatEventDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function exportAuditCsv(events: ScheduleEvent[]) {
+  const rows = [
+    ["Fecha", "Evento", "Tipo", "Actor", "Referencia", "Detalle"],
+    ...events.map((event) => [
+      formatEventDate(event.createdAt),
+      eventLabel(event.eventType),
+      event.eventType,
+      event.actorName,
+      event.teacherId,
+      eventSummary(event),
+    ]),
+  ];
+  const csv = rows
+    .map((row) => row.map((cell) => escapeCsvCell(cell)).join(","))
+    .join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "auditoria-horarios-unmsm.csv";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsvCell(value: string) {
+  return `"${value.replaceAll('"', '""')}"`;
 }
 
 async function exportXlsx(profile: TeacherProfile) {
