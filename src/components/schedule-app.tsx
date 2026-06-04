@@ -244,6 +244,32 @@ export function ScheduleApp({
     }
   }, [data, preview, router]);
 
+  useEffect(() => {
+    if (!data || view !== "direccion" || !data.canUseDirection) {
+      return;
+    }
+    const nextTeachers = filterTeachers(data.teachers, {
+      query: teacherQuery,
+      showOnlyPending,
+      statusFilter: teacherStatusFilter,
+    });
+    if (!nextTeachers.length) {
+      return;
+    }
+    if (nextTeachers.some((teacher) => teacher.id === selectedTeacherId)) {
+      return;
+    }
+    setSelectedTeacherId(nextTeachers[0].id);
+    setReviewNote(nextTeachers[0].reviewNote ?? "");
+  }, [
+    data,
+    selectedTeacherId,
+    showOnlyPending,
+    teacherQuery,
+    teacherStatusFilter,
+    view,
+  ]);
+
   const request = async (body: ScheduleAction) => {
     setSaving(true);
     const response = await fetch(endpoint, {
@@ -273,33 +299,16 @@ export function ScheduleApp({
 
   const profile = data.profile;
   const allTeachers = data.teachers;
-  const normalizedTeacherQuery = teacherQuery.trim().toLowerCase();
-  const filteredTeachers = allTeachers.filter((teacher) => {
-    if (showOnlyPending && teacher.status === "aprobado") {
-      return false;
-    }
-    if (
-      teacherStatusFilter !== "all" &&
-      teacher.status !== teacherStatusFilter
-    ) {
-      return false;
-    }
-    if (!normalizedTeacherQuery) {
-      return true;
-    }
-    return [
-      teacher.name,
-      teacher.email,
-      statusLabel(teacher.status),
-      contractRules[teacher.contract].label,
-      contractRules[teacher.contract].short,
-    ]
-      .join(" ")
-      .toLowerCase()
-      .includes(normalizedTeacherQuery);
+  const filteredTeachers = filterTeachers(allTeachers, {
+    query: teacherQuery,
+    showOnlyPending,
+    statusFilter: teacherStatusFilter,
   });
   const selectedTeacher =
     allTeachers.find((teacher) => teacher.id === selectedTeacherId) ?? profile;
+  const selectedTeacherVisible = filteredTeachers.some(
+    (teacher) => teacher.id === selectedTeacher.id,
+  );
   const selectedEvents = data.events.filter(
     (event) => event.teacherId === selectedTeacher.id,
   );
@@ -601,6 +610,7 @@ export function ScheduleApp({
           setTeacherStatusFilter={setTeacherStatusFilter}
           showOnlyPending={showOnlyPending}
           saving={saving}
+          selectedTeacherVisible={selectedTeacherVisible}
           teacherQuery={teacherQuery}
           teacherStatusFilter={teacherStatusFilter}
           teachers={filteredTeachers}
@@ -2164,6 +2174,7 @@ function DirectorView({
   reviewNote,
   selectedTeacher,
   selectedTeacherId,
+  selectedTeacherVisible,
   saving,
   setReviewNote,
   setSelectedTeacherId,
@@ -2186,6 +2197,7 @@ function DirectorView({
   reviewNote: string;
   selectedTeacher: TeacherProfile;
   selectedTeacherId: string;
+  selectedTeacherVisible: boolean;
   saving: boolean;
   setReviewNote: (note: string) => void;
   setSelectedTeacherId: (id: string) => void;
@@ -2203,6 +2215,7 @@ function DirectorView({
     showOnlyPending ||
     teacherStatusFilter !== "all" ||
     teacherQuery.trim().length > 0;
+  const selectedTeacherUnavailable = !selectedTeacherVisible;
 
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_320px]">
@@ -2314,79 +2327,119 @@ function DirectorView({
         </CardContent>
       </Card>
       <div className="min-h-0">
-        <Card className="h-full min-h-0 overflow-hidden">
-          <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b px-3 py-1.5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0">
-              <CardTitle className="truncate font-serif text-xl">
-                {selectedTeacher.name}
-              </CardTitle>
-              <CardDescription className="truncate">
-                {contractRules[selectedTeacher.contract].label} ·{" "}
-                {statusLabel(selectedTeacher.status)}
-              </CardDescription>
-            </div>
-            <Toolbar className="shrink-0 border-0 bg-transparent p-0 shadow-none">
-              <ToolbarGroup>
-                <Sheet>
-                  <SheetTrigger
-                    render={<Button variant="outline" className="2xl:hidden" />}
+        {selectedTeacherUnavailable ? (
+          <Card className="h-full min-h-0 overflow-hidden">
+            <Empty className="h-full">
+              <EmptyMedia variant="icon">
+                <Users />
+              </EmptyMedia>
+              <EmptyHeader>
+                <EmptyTitle>
+                  {teacherFiltersActive
+                    ? "Sin docente visible"
+                    : "Sin docentes para revisar"}
+                </EmptyTitle>
+                <EmptyDescription>
+                  {teacherFiltersActive
+                    ? "Limpia o ajusta filtros para abrir un horario."
+                    : "Los docentes aparecerán después de completar su acceso."}
+                </EmptyDescription>
+              </EmptyHeader>
+              {teacherFiltersActive ? (
+                <EmptyContent>
+                  <Button
+                    onClick={() => {
+                      setTeacherQuery("");
+                      setTeacherStatusFilter("all");
+                      setShowOnlyPending(false);
+                    }}
+                    variant="outline"
                   >
-                    <BookOpen data-icon="inline-start" />
-                    Detalle
-                  </SheetTrigger>
-                  <SheetContent side="right">
-                    <SheetHeader>
-                      <SheetTitle>{selectedTeacher.name}</SheetTitle>
-                      <SheetDescription>
-                        Cursos y reglas del docente seleccionado.
-                      </SheetDescription>
-                    </SheetHeader>
-                    <SheetPanel className="min-h-0 p-3">
-                      <DirectorDetailTabs
-                        events={events}
-                        onApproveTeacher={handleApproveTeacher}
-                        onObserveTeacher={handleObserveTeacher}
-                        periodClosed={periodClosed}
-                        reviewNote={reviewNote}
-                        saving={saving}
-                        selectedTeacher={selectedTeacher}
-                        setReviewNote={setReviewNote}
-                        validation={validation}
-                      />
-                    </SheetPanel>
-                  </SheetContent>
-                </Sheet>
-                <ToolbarButton
-                  onClick={handleExportPdf}
-                  render={<Button variant="outline" />}
-                >
-                  <ArrowDownToLine data-icon="inline-start" />
-                  PDF
-                </ToolbarButton>
-                <ToolbarButton onClick={handleExportXlsx} render={<Button />}>
-                  <FileSpreadsheet data-icon="inline-start" />
-                  Excel
-                </ToolbarButton>
-              </ToolbarGroup>
-            </Toolbar>
-          </CardHeader>
-          <CardContent className="min-h-0 flex-1 p-0">
-            <ScheduleBoard availability={selectedTeacher.availability} />
-          </CardContent>
-        </Card>
+                    Limpiar filtros
+                  </Button>
+                </EmptyContent>
+              ) : null}
+            </Empty>
+          </Card>
+        ) : (
+          <Card className="h-full min-h-0 overflow-hidden">
+            <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b px-3 py-1.5 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
+                <CardTitle className="truncate font-serif text-xl">
+                  {selectedTeacher.name}
+                </CardTitle>
+                <CardDescription className="truncate">
+                  {contractRules[selectedTeacher.contract].label} ·{" "}
+                  {statusLabel(selectedTeacher.status)}
+                </CardDescription>
+              </div>
+              <Toolbar className="shrink-0 border-0 bg-transparent p-0 shadow-none">
+                <ToolbarGroup>
+                  <Sheet>
+                    <SheetTrigger
+                      render={
+                        <Button variant="outline" className="2xl:hidden" />
+                      }
+                    >
+                      <BookOpen data-icon="inline-start" />
+                      Detalle
+                    </SheetTrigger>
+                    <SheetContent side="right">
+                      <SheetHeader>
+                        <SheetTitle>{selectedTeacher.name}</SheetTitle>
+                        <SheetDescription>
+                          Cursos y reglas del docente seleccionado.
+                        </SheetDescription>
+                      </SheetHeader>
+                      <SheetPanel className="min-h-0 p-3">
+                        <DirectorDetailTabs
+                          events={events}
+                          onApproveTeacher={handleApproveTeacher}
+                          onObserveTeacher={handleObserveTeacher}
+                          periodClosed={periodClosed}
+                          reviewNote={reviewNote}
+                          saving={saving}
+                          selectedTeacher={selectedTeacher}
+                          setReviewNote={setReviewNote}
+                          validation={validation}
+                        />
+                      </SheetPanel>
+                    </SheetContent>
+                  </Sheet>
+                  <ToolbarButton
+                    onClick={handleExportPdf}
+                    render={<Button variant="outline" />}
+                  >
+                    <ArrowDownToLine data-icon="inline-start" />
+                    PDF
+                  </ToolbarButton>
+                  <ToolbarButton onClick={handleExportXlsx} render={<Button />}>
+                    <FileSpreadsheet data-icon="inline-start" />
+                    Excel
+                  </ToolbarButton>
+                </ToolbarGroup>
+              </Toolbar>
+            </CardHeader>
+            <CardContent className="min-h-0 flex-1 p-0">
+              <ScheduleBoard availability={selectedTeacher.availability} />
+            </CardContent>
+          </Card>
+        )}
       </div>
       <aside className="hidden min-h-0 2xl:block">
-        <DirectorDetailTabs
-          events={events}
-          onApproveTeacher={handleApproveTeacher}
-          onObserveTeacher={handleObserveTeacher}
-          periodClosed={periodClosed}
-          reviewNote={reviewNote}
-          saving={saving}
-          selectedTeacher={selectedTeacher}
-          setReviewNote={setReviewNote}
-          validation={validation}
-        />
+        {selectedTeacherUnavailable ? null : (
+          <DirectorDetailTabs
+            events={events}
+            onApproveTeacher={handleApproveTeacher}
+            onObserveTeacher={handleObserveTeacher}
+            periodClosed={periodClosed}
+            reviewNote={reviewNote}
+            saving={saving}
+            selectedTeacher={selectedTeacher}
+            setReviewNote={setReviewNote}
+            validation={validation}
+          />
+        )}
       </aside>
     </section>
   );
@@ -2876,6 +2929,42 @@ function CoursesTable({
 
 function completionFor(profile: TeacherProfile, validation: Validation) {
   return completionForRules(profile, validation);
+}
+
+function filterTeachers(
+  teachers: TeacherProfile[],
+  {
+    query,
+    showOnlyPending,
+    statusFilter,
+  }: {
+    query: string;
+    showOnlyPending: boolean;
+    statusFilter: TeacherStatusFilter;
+  },
+) {
+  const normalizedQuery = query.trim().toLowerCase();
+  return teachers.filter((teacher) => {
+    if (showOnlyPending && teacher.status === "aprobado") {
+      return false;
+    }
+    if (statusFilter !== "all" && teacher.status !== statusFilter) {
+      return false;
+    }
+    if (!normalizedQuery) {
+      return true;
+    }
+    return [
+      teacher.name,
+      teacher.email,
+      statusLabel(teacher.status),
+      contractRules[teacher.contract].label,
+      contractRules[teacher.contract].short,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedQuery);
+  });
 }
 
 function statusLabel(status: TeacherProfile["status"]) {
