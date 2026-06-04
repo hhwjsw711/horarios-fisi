@@ -21,11 +21,12 @@ export type TeacherProfile = {
   name: string;
   email: string;
   contract: ContractKey;
-  status: "enviado" | "borrador" | "observado";
+  status: "enviado" | "borrador" | "observado" | "aprobado";
   courses: Course[];
   availability: string[];
   reviewNote?: string;
   submittedAt?: string;
+  approvedAt?: string;
   updatedAt?: string;
 };
 

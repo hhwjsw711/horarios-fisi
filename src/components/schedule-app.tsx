@@ -157,6 +157,7 @@ type ScheduleAction =
   | { action: "addCourse"; courseId: string }
   | { action: "removeCourse"; courseId: string }
   | { action: "observe"; teacherId: string; note: string }
+  | { action: "approve"; teacherId: string }
   | { action: "createCourse"; name: string; school: string; isThesis: boolean }
   | { action: "setCourseActive"; courseId: string; active: boolean }
   | { action: "setAcademicTerm"; academicTerm: string }
@@ -166,6 +167,7 @@ type ScheduleAction =
       role: AppRole;
       school: string;
     }
+  | { action: "setPeriodClosed"; closed: boolean }
   | { action: "submit" };
 
 type ApiError = {
@@ -263,7 +265,7 @@ export function ScheduleApp({
   const profile = data.profile;
   const allTeachers = data.teachers;
   const filteredTeachers = showOnlyPending
-    ? allTeachers.filter((teacher) => teacher.status !== "enviado")
+    ? allTeachers.filter((teacher) => teacher.status !== "aprobado")
     : allTeachers;
   const selectedTeacher =
     allTeachers.find((teacher) => teacher.id === selectedTeacherId) ?? profile;
@@ -273,6 +275,7 @@ export function ScheduleApp({
   const validation = validateTeacher(profile);
   const selectedValidation = validateTeacher(selectedTeacher);
   const academicTerm = data.settings.academicTerm;
+  const periodClosed = data.settings.periodClosed;
   const activeCatalog = data.catalog.filter(
     (course) => course.active !== false,
   );
@@ -283,13 +286,12 @@ export function ScheduleApp({
   const completion = completionFor(profile, validation);
   const canUseDirection = data.canUseDirection;
   const showClerkControls = process.env.NODE_ENV === "production" && !preview;
-  const pendingCount = data.teachers.filter(
-    (teacher) => teacher.status !== "enviado",
+  const approvedCount = data.teachers.filter(
+    (teacher) => teacher.status === "aprobado",
   ).length;
+  const pendingCount = data.teachers.length - approvedCount;
   const reviewCompletion = data.teachers.length
-    ? Math.round(
-        ((data.teachers.length - pendingCount) / data.teachers.length) * 100,
-      )
+    ? Math.round((approvedCount / data.teachers.length) * 100)
     : 0;
   const sidebarCompletion =
     canUseDirection && view !== "docente" ? reviewCompletion : completion;
@@ -297,6 +299,10 @@ export function ScheduleApp({
     canUseDirection && view !== "docente" ? "Revisión" : "Docente";
 
   const handleToggleSlot = (day: DayKey, hour: number) => {
+    if (periodClosed) {
+      toast.error("El periodo académico está cerrado.");
+      return;
+    }
     const key = slotKey(day, hour);
     const next = new Set(profile.availability);
     if (next.has(key)) {
@@ -318,10 +324,18 @@ export function ScheduleApp({
   };
 
   const handleContractChange = (contract: ContractKey) => {
+    if (periodClosed) {
+      toast.error("El periodo académico está cerrado.");
+      return;
+    }
     request({ action: "setContract", contract });
   };
 
   const handleAddCourse = async () => {
+    if (periodClosed) {
+      toast.error("El periodo académico está cerrado.");
+      return;
+    }
     const course = activeCatalog.find((item) => item.id === courseId);
     if (!course) {
       return;
@@ -341,10 +355,18 @@ export function ScheduleApp({
   };
 
   const handleRemoveCourse = async (id: string) => {
+    if (periodClosed) {
+      toast.error("El periodo académico está cerrado.");
+      return;
+    }
     await request({ action: "removeCourse", courseId: id });
   };
 
   const handleSubmit = async () => {
+    if (periodClosed) {
+      toast.error("El periodo académico está cerrado.");
+      return;
+    }
     if (!validation.complete) {
       toast.error("Aún faltan reglas por completar.");
       return;
@@ -372,6 +394,10 @@ export function ScheduleApp({
   };
 
   const handleObserveTeacher = async () => {
+    if (periodClosed) {
+      toast.error("El periodo académico está cerrado.");
+      return;
+    }
     const note = reviewNote.trim();
     if (note.length < 8) {
       toast.error("Escribe una observación más específica.");
@@ -385,6 +411,28 @@ export function ScheduleApp({
     if (payload) {
       toast.success("Observación registrada.");
       setReviewNote("");
+    }
+  };
+
+  const handleApproveTeacher = async () => {
+    if (periodClosed) {
+      toast.error("El periodo académico está cerrado.");
+      return;
+    }
+    if (selectedTeacher.status !== "enviado") {
+      toast.error("Solo puedes aprobar horarios enviados.");
+      return;
+    }
+    if (!selectedValidation.complete) {
+      toast.error("El horario no cumple las reglas.");
+      return;
+    }
+    const payload = await request({
+      action: "approve",
+      teacherId: selectedTeacher.id,
+    });
+    if (payload) {
+      toast.success("Horario aprobado.");
     }
   };
 
@@ -434,6 +482,17 @@ export function ScheduleApp({
     return payload;
   };
 
+  const handleSetPeriodClosed = async (closed: boolean) => {
+    const payload = await request({
+      action: "setPeriodClosed",
+      closed,
+    });
+    if (payload) {
+      toast.success(closed ? "Periodo cerrado." : "Periodo reabierto.");
+    }
+    return payload;
+  };
+
   const handleSetUserAccess = async (
     userId: string,
     role: AppRole,
@@ -459,6 +518,7 @@ export function ScheduleApp({
       completion={sidebarCompletion}
       completionLabel={sidebarCompletionLabel}
       currentRole={data.onboarding.role}
+      periodClosed={periodClosed}
       pendingCount={pendingCount}
       selectedView={view}
       status={profile.status}
@@ -467,12 +527,20 @@ export function ScheduleApp({
       {view === "configuracion" && canUseDirection ? (
         <ConfigurationView
           academicTerm={academicTerm}
+          approvedCount={approvedCount}
           catalog={data.catalog}
+          canClosePeriod={
+            data.teachers.length > 0 && approvedCount === data.teachers.length
+          }
           onCreateCourse={handleCreateCourse}
           onSetAcademicTerm={handleSetAcademicTerm}
           onSetCourseActive={handleSetCourseActive}
+          onSetPeriodClosed={handleSetPeriodClosed}
+          periodClosed={periodClosed}
+          periodClosedAt={data.settings.periodClosedAt}
           saving={saving}
           schools={schoolOptions}
+          teacherCount={data.teachers.length}
         />
       ) : view === "usuarios" && canUseDirection ? (
         <UsersAccessView
@@ -486,8 +554,10 @@ export function ScheduleApp({
         <DirectorView
           handleExportPdf={handleExportPdf}
           handleExportXlsx={handleExportXlsx}
+          handleApproveTeacher={handleApproveTeacher}
           handleObserveTeacher={handleObserveTeacher}
           events={selectedEvents}
+          periodClosed={periodClosed}
           reviewNote={reviewNote}
           selectedTeacher={selectedTeacher}
           selectedTeacherId={selectedTeacher.id}
@@ -512,6 +582,7 @@ export function ScheduleApp({
           handleRemoveCourse={handleRemoveCourse}
           handleSubmit={handleSubmit}
           handleToggleSlot={handleToggleSlot}
+          periodClosed={periodClosed}
           profile={profile}
           saving={saving}
           school={school}
@@ -590,6 +661,7 @@ function ScheduleFrame({
   completionLabel,
   currentRole,
   pendingCount,
+  periodClosed,
   selectedView,
   status,
   userName,
@@ -602,6 +674,7 @@ function ScheduleFrame({
   completionLabel: string;
   currentRole: AppRole;
   pendingCount: number;
+  periodClosed: boolean;
   selectedView: ViewKey;
   status: TeacherProfile["status"];
   userName: string;
@@ -640,10 +713,14 @@ function ScheduleFrame({
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Badge
-                variant={status === "enviado" ? "default" : "secondary"}
+                variant={
+                  periodClosed || status === "aprobado"
+                    ? "default"
+                    : "secondary"
+                }
                 className="hidden sm:inline-flex"
               >
-                {statusLabel(status)}
+                {periodClosed ? "Periodo cerrado" : statusLabel(status)}
               </Badge>
               <Badge variant="outline" className="hidden md:inline-flex">
                 {roleLabel(currentRole)}
@@ -1065,6 +1142,7 @@ function DocenteView({
   handleRemoveCourse,
   handleSubmit,
   handleToggleSlot,
+  periodClosed,
   profile,
   saving,
   school,
@@ -1081,6 +1159,7 @@ function DocenteView({
   handleRemoveCourse: (id: string) => void;
   handleSubmit: () => void;
   handleToggleSlot: (day: DayKey, hour: number) => void;
+  periodClosed: boolean;
   profile: TeacherProfile;
   saving: boolean;
   school: string;
@@ -1104,6 +1183,7 @@ function DocenteView({
           <Toolbar className="shrink-0 border-0 bg-transparent p-0 shadow-none">
             <ToolbarGroup>
               <Select
+                disabled={periodClosed}
                 value={profile.contract}
                 onValueChange={handleContractChange}
               >
@@ -1123,7 +1203,7 @@ function DocenteView({
               </Select>
               <ToolbarSeparator orientation="vertical" />
               <ToolbarButton
-                disabled={saving}
+                disabled={saving || periodClosed}
                 onClick={handleSubmit}
                 render={<Button />}
               >
@@ -1136,7 +1216,7 @@ function DocenteView({
         <CardContent className="min-h-0 flex-1 p-0">
           <ScheduleBoard
             availability={profile.availability}
-            interactive
+            interactive={!periodClosed}
             onToggleSlot={handleToggleSlot}
           />
         </CardContent>
@@ -1146,6 +1226,7 @@ function DocenteView({
           catalogForSchool={catalogForSchool}
           courseId={courseId}
           courses={profile.courses}
+          disabled={periodClosed}
           handleAddCourse={handleAddCourse}
           handleRemoveCourse={handleRemoveCourse}
           school={school}
@@ -1155,6 +1236,7 @@ function DocenteView({
         />
         <TeacherStatusPanel
           onSubmit={handleSubmit}
+          periodClosed={periodClosed}
           profile={profile}
           saving={saving}
           validation={validation}
@@ -1168,6 +1250,7 @@ function CoursesEditorCard({
   catalogForSchool,
   courseId,
   courses,
+  disabled = false,
   handleAddCourse,
   handleRemoveCourse,
   school,
@@ -1178,6 +1261,7 @@ function CoursesEditorCard({
   catalogForSchool: Course[];
   courseId: string;
   courses: Course[];
+  disabled?: boolean;
   handleAddCourse: () => void;
   handleRemoveCourse: (id: string) => void;
   school: string;
@@ -1197,7 +1281,7 @@ function CoursesEditorCard({
       </CardHeader>
       <CardContent className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2 px-2.5 py-2">
         <div className="grid gap-2">
-          <Select value={school} onValueChange={setSchool}>
+          <Select disabled={disabled} value={school} onValueChange={setSchool}>
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Escuela" />
             </SelectTrigger>
@@ -1213,7 +1297,11 @@ function CoursesEditorCard({
             </SelectContent>
           </Select>
           <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-            <Select value={courseId} onValueChange={setCourseId}>
+            <Select
+              disabled={disabled}
+              value={courseId}
+              onValueChange={setCourseId}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Curso" />
               </SelectTrigger>
@@ -1228,7 +1316,7 @@ function CoursesEditorCard({
                 </SelectGroup>
               </SelectContent>
             </Select>
-            <Button onClick={handleAddCourse}>
+            <Button disabled={disabled} onClick={handleAddCourse}>
               <Plus data-icon="inline-start" />
               Agregar
             </Button>
@@ -1238,7 +1326,7 @@ function CoursesEditorCard({
           <CoursesTable
             compact
             courses={courses}
-            onRemoveCourse={handleRemoveCourse}
+            onRemoveCourse={disabled ? undefined : handleRemoveCourse}
           />
         </div>
       </CardContent>
@@ -1248,14 +1336,22 @@ function CoursesEditorCard({
 
 function ConfigurationView({
   academicTerm,
+  approvedCount,
+  canClosePeriod,
   catalog,
   onCreateCourse,
   onSetAcademicTerm,
   onSetCourseActive,
+  onSetPeriodClosed,
+  periodClosed,
+  periodClosedAt,
   saving,
   schools: schoolOptions,
+  teacherCount,
 }: {
   academicTerm: string;
+  approvedCount: number;
+  canClosePeriod: boolean;
   catalog: Course[];
   onCreateCourse: (input: {
     isThesis: boolean;
@@ -1264,8 +1360,12 @@ function ConfigurationView({
   }) => Promise<SchedulePayload | null>;
   onSetAcademicTerm: (academicTerm: string) => Promise<SchedulePayload | null>;
   onSetCourseActive: (courseId: string, active: boolean) => Promise<void>;
+  onSetPeriodClosed: (closed: boolean) => Promise<SchedulePayload | null>;
+  periodClosed: boolean;
+  periodClosedAt?: string;
   saving: boolean;
   schools: string[];
+  teacherCount: number;
 }) {
   const [term, setTerm] = useState(academicTerm);
   const [name, setName] = useState("");
@@ -1345,6 +1445,34 @@ function ConfigurationView({
                 Guardar
               </Button>
             </div>
+          </Field>
+          <Field className="rounded-md border bg-muted/25 p-2.5">
+            <div className="flex w-full items-start justify-between gap-3">
+              <div className="min-w-0">
+                <FieldLabel>Cierre de periodo</FieldLabel>
+                <FieldDescription>
+                  {periodClosed
+                    ? `Cerrado${periodClosedAt ? `: ${periodClosedAt}` : ""}`
+                    : `${approvedCount}/${teacherCount} horarios aprobados.`}
+                </FieldDescription>
+              </div>
+              <Badge variant={periodClosed ? "default" : "secondary"}>
+                {periodClosed ? "Cerrado" : "Abierto"}
+              </Badge>
+            </div>
+            <Button
+              className="w-full"
+              disabled={saving || (!periodClosed && !canClosePeriod)}
+              loading={saving}
+              onClick={() => onSetPeriodClosed(!periodClosed)}
+              variant={periodClosed || !canClosePeriod ? "outline" : "default"}
+            >
+              {periodClosed
+                ? "Reabrir periodo"
+                : canClosePeriod
+                  ? "Cerrar periodo"
+                  : "Faltan aprobaciones"}
+            </Button>
           </Field>
           <Separator />
           <div>
@@ -1721,7 +1849,8 @@ function UsersAccessTable({
                   {user.teacherStatus ? (
                     <Badge
                       variant={
-                        user.teacherStatus === "enviado"
+                        user.teacherStatus === "enviado" ||
+                        user.teacherStatus === "aprobado"
                           ? "default"
                           : "secondary"
                       }
@@ -1746,11 +1875,13 @@ function UsersAccessTable({
 
 function TeacherStatusPanel({
   onSubmit,
+  periodClosed,
   profile,
   saving,
   validation,
 }: {
   onSubmit: () => void;
+  periodClosed: boolean;
   profile: TeacherProfile;
   saving?: boolean;
   validation: Validation;
@@ -1803,11 +1934,18 @@ function TeacherStatusPanel({
         </div>
         <div className="flex items-center justify-between gap-3">
           <span className="min-w-0 truncate text-muted-foreground">
-            {profile.submittedAt
-              ? `Último envío: ${profile.submittedAt}`
-              : "Sin envío registrado"}
+            {profile.approvedAt
+              ? `Aprobado: ${profile.approvedAt}`
+              : profile.submittedAt
+                ? `Último envío: ${profile.submittedAt}`
+                : "Sin envío registrado"}
           </span>
-          <Button size="sm" loading={saving} onClick={onSubmit}>
+          <Button
+            size="sm"
+            disabled={periodClosed}
+            loading={saving}
+            onClick={onSubmit}
+          >
             Enviar
           </Button>
         </div>
@@ -1827,9 +1965,11 @@ function StatusMetric({ label, value }: { label: string; value: string }) {
 
 function DirectorView({
   events,
+  handleApproveTeacher,
   handleExportPdf,
   handleExportXlsx,
   handleObserveTeacher,
+  periodClosed,
   reviewNote,
   selectedTeacher,
   selectedTeacherId,
@@ -1842,9 +1982,11 @@ function DirectorView({
   validation,
 }: {
   events: ScheduleEvent[];
+  handleApproveTeacher: () => Promise<void>;
   handleExportPdf: () => Promise<void>;
   handleExportXlsx: () => Promise<void>;
   handleObserveTeacher: () => Promise<void>;
+  periodClosed: boolean;
   reviewNote: string;
   selectedTeacher: TeacherProfile;
   selectedTeacherId: string;
@@ -1874,7 +2016,7 @@ function DirectorView({
           <Field className="mt-2 flex-row items-center justify-between gap-2 rounded-md bg-muted/25 px-2 py-1.5">
             <div>
               <FieldLabel className="text-xs">Solo pendientes</FieldLabel>
-              <FieldDescription>Oculta enviados.</FieldDescription>
+              <FieldDescription>Oculta aprobados.</FieldDescription>
             </div>
             <Switch
               checked={showOnlyPending}
@@ -1943,7 +2085,9 @@ function DirectorView({
                     <SheetPanel className="min-h-0 p-3">
                       <DirectorDetailTabs
                         events={events}
+                        onApproveTeacher={handleApproveTeacher}
                         onObserveTeacher={handleObserveTeacher}
+                        periodClosed={periodClosed}
                         reviewNote={reviewNote}
                         saving={saving}
                         selectedTeacher={selectedTeacher}
@@ -1975,7 +2119,9 @@ function DirectorView({
       <aside className="hidden min-h-0 2xl:block">
         <DirectorDetailTabs
           events={events}
+          onApproveTeacher={handleApproveTeacher}
           onObserveTeacher={handleObserveTeacher}
+          periodClosed={periodClosed}
           reviewNote={reviewNote}
           saving={saving}
           selectedTeacher={selectedTeacher}
@@ -1989,7 +2135,9 @@ function DirectorView({
 
 function DirectorDetailTabs({
   events,
+  onApproveTeacher,
   onObserveTeacher,
+  periodClosed,
   reviewNote,
   saving,
   selectedTeacher,
@@ -1997,7 +2145,9 @@ function DirectorDetailTabs({
   validation,
 }: {
   events: ScheduleEvent[];
+  onApproveTeacher: () => Promise<void>;
   onObserveTeacher: () => Promise<void>;
+  periodClosed: boolean;
   reviewNote: string;
   saving: boolean;
   selectedTeacher: TeacherProfile;
@@ -2017,11 +2167,14 @@ function DirectorDetailTabs({
       >
         <RulePanel profile={selectedTeacher} validation={validation} />
         <DirectorReviewCard
+          onApproveTeacher={onApproveTeacher}
           onObserveTeacher={onObserveTeacher}
+          periodClosed={periodClosed}
           reviewNote={reviewNote}
           saving={saving}
           selectedTeacher={selectedTeacher}
           setReviewNote={setReviewNote}
+          validation={validation}
         />
       </TabsContent>
       <TabsContent value="cursos" className="min-h-0 overflow-hidden">
@@ -2051,27 +2204,46 @@ function CoursesReviewCard({ courses }: { courses: Course[] }) {
 }
 
 function DirectorReviewCard({
+  onApproveTeacher,
   onObserveTeacher,
+  periodClosed,
   reviewNote,
   saving,
   selectedTeacher,
   setReviewNote,
+  validation,
 }: {
+  onApproveTeacher: () => Promise<void>;
   onObserveTeacher: () => Promise<void>;
+  periodClosed: boolean;
   reviewNote: string;
   saving: boolean;
   selectedTeacher: TeacherProfile;
   setReviewNote: (note: string) => void;
+  validation: Validation;
 }) {
+  const canApprove =
+    !periodClosed &&
+    selectedTeacher.status === "enviado" &&
+    validation.complete;
+  const canObserve = !periodClosed && selectedTeacher.status !== "borrador";
+
   return (
     <Card className="overflow-hidden">
       <CardHeader className="border-b px-3 py-2">
-        <CardTitle className="text-base">Observación</CardTitle>
+        <CardTitle className="text-base">Decisión de revisión</CardTitle>
         <CardDescription>
-          Devuelve el horario al docente con una nota accionable.
+          Aprueba el horario o devuélvelo con una nota accionable.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-2 px-3 py-2.5">
+        {selectedTeacher.approvedAt ? (
+          <Alert variant="success" className="p-2.5">
+            <ShieldCheck />
+            <AlertTitle>Horario aprobado</AlertTitle>
+            <AlertDescription>{selectedTeacher.approvedAt}</AlertDescription>
+          </Alert>
+        ) : null}
         {selectedTeacher.reviewNote ? (
           <Alert variant="warning" className="p-2.5">
             <AlertCircle />
@@ -2084,16 +2256,26 @@ function DirectorReviewCard({
           onChange={(event) => setReviewNote(event.target.value)}
           placeholder="Ej. Ajustar viernes 14:00 - 18:00 por cruce con aula asignada."
           size="sm"
+          disabled={periodClosed}
           value={reviewNote}
         />
-        <Button
-          disabled={selectedTeacher.status === "borrador"}
-          loading={saving}
-          onClick={onObserveTeacher}
-          variant="outline"
-        >
-          Marcar observado
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            disabled={!canObserve}
+            loading={saving}
+            onClick={onObserveTeacher}
+            variant="outline"
+          >
+            Observar
+          </Button>
+          <Button
+            disabled={!canApprove}
+            loading={saving}
+            onClick={onApproveTeacher}
+          >
+            Aprobar
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -2495,6 +2677,9 @@ function completionFor(profile: TeacherProfile, validation: Validation) {
 }
 
 function statusLabel(status: TeacherProfile["status"]) {
+  if (status === "aprobado") {
+    return "Aprobado";
+  }
   if (status === "enviado") {
     return "Enviado";
   }
@@ -2520,7 +2705,10 @@ function routeLabel(view: ViewKey) {
 
 function eventLabel(eventType: string) {
   const labels: Record<string, string> = {
+    "director.approved_schedule": "Horario aprobado",
     "director.observed_schedule": "Observación registrada",
+    "period.closed": "Periodo cerrado",
+    "period.reopened": "Periodo reabierto",
     "teacher.availability_changed": "Disponibilidad actualizada",
     "teacher.contract_changed": "Clase docente cambiada",
     "teacher.course_added": "Curso agregado",
@@ -2538,6 +2726,12 @@ function eventSummary(event: ScheduleEvent) {
   }
   if (typeof event.metadata.submittedAt === "string") {
     return event.metadata.submittedAt;
+  }
+  if (typeof event.metadata.approvedAt === "string") {
+    return event.metadata.approvedAt;
+  }
+  if (typeof event.metadata.closedAt === "string") {
+    return event.metadata.closedAt;
   }
   if (typeof event.metadata.contract === "string") {
     return contractRules[event.metadata.contract as ContractKey]?.label;

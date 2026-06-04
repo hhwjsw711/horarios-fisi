@@ -45,6 +45,8 @@ export type SchedulePayload = {
 
 export type ScheduleSettings = {
   academicTerm: string;
+  periodClosed: boolean;
+  periodClosedAt?: string;
 };
 
 export type ScheduleEvent = {
@@ -98,6 +100,7 @@ type TeacherRow = {
   status: TeacherProfile["status"];
   review_note: string;
   submitted_at: string | null;
+  approved_at: string | null;
   updated_at: string | null;
 };
 
@@ -163,9 +166,10 @@ export async function ensureScheduleSchema() {
       name text not null,
       email text not null,
       contract text not null check (contract in ('full', 'partial20', 'partial10')),
-      status text not null default 'borrador' check (status in ('enviado', 'borrador', 'observado')),
+      status text not null default 'borrador',
       review_note text not null default '',
       submitted_at text,
+      approved_at text,
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     )
@@ -216,11 +220,23 @@ export async function ensureScheduleSchema() {
     "alter table teacher_profiles add column if not exists review_note text not null default ''",
   );
   await sql.query(
+    "alter table teacher_profiles add column if not exists approved_at text",
+  );
+  await sql.query(
+    "alter table teacher_profiles drop constraint if exists teacher_profiles_status_check",
+  );
+  await sql.query(
+    "alter table teacher_profiles add constraint teacher_profiles_status_check check (status in ('enviado', 'borrador', 'observado', 'aprobado'))",
+  );
+  await sql.query(
     "alter table courses add column if not exists active boolean not null default true",
   );
   await sql.query(
     "insert into app_settings (key, value) values ('academic_term', $1) on conflict (key) do nothing",
     [defaultAcademicTerm],
+  );
+  await sql.query(
+    "insert into app_settings (key, value) values ('period_closed', 'false') on conflict (key) do nothing",
   );
 }
 
@@ -255,8 +271,8 @@ export async function seedScheduleData({
   for (const teacher of seedTeachers) {
     await sql.query(
       `
-        insert into teacher_profiles (id, name, email, contract, status, review_note, submitted_at)
-        values ($1, $2, $3, $4, $5, $6, $7)
+        insert into teacher_profiles (id, name, email, contract, status, review_note, submitted_at, approved_at)
+        values ($1, $2, $3, $4, $5, $6, $7, $8)
         on conflict (id) do update set
           name = excluded.name,
           email = excluded.email,
@@ -264,6 +280,7 @@ export async function seedScheduleData({
           status = excluded.status,
           review_note = excluded.review_note,
           submitted_at = excluded.submitted_at,
+          approved_at = excluded.approved_at,
           updated_at = now()
       `,
       [
@@ -274,6 +291,7 @@ export async function seedScheduleData({
         teacher.status,
         teacher.reviewNote ?? "",
         teacher.submittedAt ?? null,
+        teacher.approvedAt ?? null,
       ],
     );
     await replaceAvailability(teacher.id, teacher.availability);
@@ -360,12 +378,13 @@ export async function setContract(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
+  await ensurePeriodOpen();
   const sql = getSql();
   const profileId = await getProfileId(identity);
   await sql.query(
     `
       update teacher_profiles
-      set contract = $2, status = 'borrador', review_note = '', updated_at = now()
+      set contract = $2, status = 'borrador', review_note = '', approved_at = null, updated_at = now()
       where id = $1
     `,
     [profileId, contract],
@@ -383,11 +402,12 @@ export async function setAvailability(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
+  await ensurePeriodOpen();
   const profileId = await getProfileId(identity);
   await replaceAvailability(profileId, normalizeAvailability(availability));
   const sql = getSql();
   await sql.query(
-    "update teacher_profiles set status = 'borrador', review_note = '', updated_at = now() where id = $1",
+    "update teacher_profiles set status = 'borrador', review_note = '', approved_at = null, updated_at = now() where id = $1",
     [profileId],
   );
   await recordEvent(identity, profileId, "teacher.availability_changed", {
@@ -400,6 +420,7 @@ export async function addCourse(identity: ScheduleIdentity, courseId: string) {
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
+  await ensurePeriodOpen();
   const sql = getSql();
   const profileId = await getProfileId(identity);
   const course = await readCourse(courseId);
@@ -431,7 +452,7 @@ export async function addCourse(identity: ScheduleIdentity, courseId: string) {
     [profileId, courseId],
   );
   await sql.query(
-    "update teacher_profiles set status = 'borrador', review_note = '', updated_at = now() where id = $1",
+    "update teacher_profiles set status = 'borrador', review_note = '', approved_at = null, updated_at = now() where id = $1",
     [profileId],
   );
   await recordEvent(identity, profileId, "teacher.course_added", { courseId });
@@ -590,6 +611,7 @@ export async function removeCourse(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
+  await ensurePeriodOpen();
   const sql = getSql();
   const profileId = await getProfileId(identity);
   await sql.query(
@@ -597,7 +619,7 @@ export async function removeCourse(
     [profileId, courseId],
   );
   await sql.query(
-    "update teacher_profiles set status = 'borrador', review_note = '', updated_at = now() where id = $1",
+    "update teacher_profiles set status = 'borrador', review_note = '', approved_at = null, updated_at = now() where id = $1",
     [profileId],
   );
   await recordEvent(identity, profileId, "teacher.course_removed", {
@@ -615,6 +637,7 @@ export async function observeSchedule(
     return getPreviewPayload(identity);
   }
   await ensureDirection(identity);
+  await ensurePeriodOpen();
   const normalizedNote = note.trim();
   if (normalizedNote.length < 8) {
     throw new ScheduleError("Escribe una observación más específica.");
@@ -623,7 +646,7 @@ export async function observeSchedule(
   const rows = (await sql.query(
     `
       update teacher_profiles
-      set status = 'observado', review_note = $2, updated_at = now()
+      set status = 'observado', review_note = $2, approved_at = null, updated_at = now()
       where id = $1
       returning id
     `,
@@ -638,24 +661,57 @@ export async function observeSchedule(
   return getSchedulePayload(identity);
 }
 
+export async function approveSchedule(
+  identity: ScheduleIdentity,
+  teacherId: string,
+) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
+  await ensureDirection(identity);
+  await ensurePeriodOpen();
+  const profile = await readTeacher(teacherId);
+  if (profile.status === "aprobado") {
+    return getSchedulePayload(identity);
+  }
+  if (profile.status !== "enviado") {
+    throw new ScheduleError("Solo puedes aprobar horarios enviados.");
+  }
+  if (!teacherMeetsRules(profile)) {
+    throw new ScheduleError("El horario no cumple las reglas.");
+  }
+  const approvedAt = formatTimestamp();
+  const sql = getSql();
+  await sql.query(
+    `
+      update teacher_profiles
+      set status = 'aprobado', review_note = '', approved_at = $2, updated_at = now()
+      where id = $1
+    `,
+    [teacherId, approvedAt],
+  );
+  await recordEvent(identity, teacherId, "director.approved_schedule", {
+    approvedAt,
+  });
+  return getSchedulePayload(identity);
+}
+
 export async function submitSchedule(identity: ScheduleIdentity) {
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
+  await ensurePeriodOpen();
   const sql = getSql();
   const profileId = await getProfileId(identity);
   const profile = await readTeacher(profileId);
   if (!teacherMeetsRules(profile)) {
     throw new ScheduleError("Aún faltan reglas por completar.");
   }
-  const submittedAt = new Intl.DateTimeFormat("es-PE", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date());
+  const submittedAt = formatTimestamp();
   await sql.query(
     `
       update teacher_profiles
-      set status = 'enviado', review_note = '', submitted_at = $2, updated_at = now()
+      set status = 'enviado', review_note = '', submitted_at = $2, approved_at = null, updated_at = now()
       where id = $1
     `,
     [profileId, submittedAt],
@@ -663,6 +719,36 @@ export async function submitSchedule(identity: ScheduleIdentity) {
   await recordEvent(identity, profileId, "teacher.submitted_schedule", {
     submittedAt,
   });
+  return getSchedulePayload(identity);
+}
+
+export async function setPeriodClosed(
+  identity: ScheduleIdentity,
+  closed: boolean,
+) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
+  await ensureDirection(identity);
+  const sql = getSql();
+  if (closed) {
+    const teachers = await readTeachers();
+    if (!teachers.length) {
+      throw new ScheduleError("No hay docentes para cerrar el periodo.");
+    }
+    const pending = teachers.filter((teacher) => teacher.status !== "aprobado");
+    if (pending.length) {
+      throw new ScheduleError("Aprueba todos los horarios antes de cerrar.");
+    }
+    const closedAt = formatTimestamp();
+    await upsertSetting("period_closed", "true");
+    await upsertSetting("period_closed_at", closedAt);
+    await recordEvent(identity, "settings", "period.closed", { closedAt });
+    return getSchedulePayload(identity);
+  }
+  await sql.query("delete from app_settings where key in ('period_closed_at')");
+  await upsertSetting("period_closed", "false");
+  await recordEvent(identity, "settings", "period.reopened", {});
   return getSchedulePayload(identity);
 }
 
@@ -702,6 +788,13 @@ function maxConsecutive(values: number[]) {
   return max;
 }
 
+function formatTimestamp() {
+  return new Intl.DateTimeFormat("es-PE", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date());
+}
+
 async function ensureSeeded() {
   seedReady ??= prepareScheduleData().catch((error) => {
     seedReady = undefined;
@@ -729,6 +822,28 @@ async function ensureDirection(identity: ScheduleIdentity) {
   if (user.role !== "direccion") {
     throw new ScheduleError("No tienes acceso de Dirección.", 403);
   }
+}
+
+async function ensurePeriodOpen() {
+  await ensureSeeded();
+  const settings = await readSettings();
+  if (settings.periodClosed) {
+    throw new ScheduleError("El periodo académico está cerrado.", 403);
+  }
+}
+
+async function upsertSetting(key: string, value: string) {
+  const sql = getSql();
+  await sql.query(
+    `
+      insert into app_settings (key, value, updated_at)
+      values ($1, $2, now())
+      on conflict (key) do update set
+        value = excluded.value,
+        updated_at = now()
+    `,
+    [key, value],
+  );
 }
 
 function validateOnboarding(
@@ -810,10 +925,16 @@ async function readCourse(id: string) {
 async function readSettings(): Promise<ScheduleSettings> {
   const sql = getSql();
   const rows = (await sql.query(
-    "select value from app_settings where key = 'academic_term' limit 1",
-  )) as { value: string }[];
+    "select key, value from app_settings where key in ('academic_term', 'period_closed', 'period_closed_at')",
+  )) as { key: string; value: string }[];
+  const values = new Map(rows.map((row) => [row.key, row.value]));
+  const periodClosed = values.get("period_closed") === "true";
   return {
-    academicTerm: rows[0]?.value ?? defaultAcademicTerm,
+    academicTerm: values.get("academic_term") ?? defaultAcademicTerm,
+    periodClosed,
+    periodClosedAt: periodClosed
+      ? (values.get("period_closed_at") ?? undefined)
+      : undefined,
   };
 }
 
@@ -967,6 +1088,7 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
     schools,
     settings: {
       academicTerm: defaultAcademicTerm,
+      periodClosed: false,
     },
     events: [
       {
@@ -976,6 +1098,15 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
         actorName: "Dirección",
         eventType: "teacher.submitted_schedule",
         metadata: { submittedAt: "03 Jun 2026, 18:12" },
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        teacherId: seedTeachers[1].id,
+        actorUserId: "preview-director",
+        actorName: "Dirección",
+        eventType: "director.approved_schedule",
+        metadata: { approvedAt: "03 Jun 2026, 18:20" },
         createdAt: new Date().toISOString(),
       },
     ],
@@ -1053,7 +1184,7 @@ async function readTeachers() {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      select tp.id, tp.name, tp.email, tp.contract, tp.status, tp.review_note, tp.submitted_at, tp.updated_at::text
+      select tp.id, tp.name, tp.email, tp.contract, tp.status, tp.review_note, tp.submitted_at, tp.approved_at, tp.updated_at::text
       from teacher_profiles tp
       left join app_users au on au.clerk_user_id = tp.clerk_user_id
       where coalesce(au.role, 'docente') = 'docente'
@@ -1061,7 +1192,8 @@ async function readTeachers() {
         case tp.status
           when 'observado' then 0
           when 'borrador' then 1
-          else 2
+          when 'enviado' then 2
+          else 3
         end,
         tp.name asc
     `,
@@ -1073,7 +1205,7 @@ async function readTeacher(id: string) {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      select id, name, email, contract, status, review_note, submitted_at, updated_at::text
+      select id, name, email, contract, status, review_note, submitted_at, approved_at, updated_at::text
       from teacher_profiles
       where id = $1
       limit 1
@@ -1115,6 +1247,7 @@ async function inflateTeacher(row: TeacherRow): Promise<TeacherProfile> {
     status: row.status,
     reviewNote: row.review_note || undefined,
     submittedAt: row.submitted_at ?? undefined,
+    approvedAt: row.approved_at ?? undefined,
     updatedAt: row.updated_at ?? undefined,
     courses: courseRows.map((course) => ({
       id: course.id,

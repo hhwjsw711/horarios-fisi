@@ -4,6 +4,7 @@ import { type ContractKey, contractRules } from "@/lib/schedule-data";
 import type { AppRole } from "@/lib/schedule-db";
 import {
   addCourse,
+  approveSchedule,
   completeOnboarding,
   createCourse,
   getSchedulePayload,
@@ -15,6 +16,7 @@ import {
   setAvailability,
   setContract,
   setCourseActive,
+  setPeriodClosed,
   setUserAccess,
   submitSchedule,
 } from "@/lib/schedule-db";
@@ -92,6 +94,12 @@ export async function PATCH(request: NextRequest) {
         await observeSchedule(identity, body.teacherId, body.note),
       );
     }
+    if (body.action === "approve") {
+      if (typeof body.teacherId !== "string") {
+        return NextResponse.json({ error: "Invalid review" }, { status: 400 });
+      }
+      return NextResponse.json(await approveSchedule(identity, body.teacherId));
+    }
     if (body.action === "createCourse") {
       if (typeof body.name !== "string" || typeof body.school !== "string") {
         return NextResponse.json({ error: "Invalid course" }, { status: 400 });
@@ -130,6 +138,11 @@ export async function PATCH(request: NextRequest) {
       }
       return NextResponse.json(
         await setUserAccess(identity, body.userId, body.role, body.school),
+      );
+    }
+    if (body.action === "setPeriodClosed") {
+      return NextResponse.json(
+        await setPeriodClosed(identity, Boolean(body.closed)),
       );
     }
     if (body.action === "submit") {
