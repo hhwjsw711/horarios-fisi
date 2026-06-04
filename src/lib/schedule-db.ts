@@ -12,6 +12,7 @@ import {
   slotKey,
   type TeacherProfile,
 } from "@/lib/schedule-data";
+import { validateTeacherRules } from "@/lib/schedule-rules";
 
 export type AppRole = "docente" | "direccion";
 
@@ -238,6 +239,41 @@ export async function ensureScheduleSchema() {
   await sql.query(
     "insert into app_settings (key, value) values ('period_closed', 'false') on conflict (key) do nothing",
   );
+}
+
+export async function verifyScheduleSchema() {
+  const sql = getSql();
+  const columns = (await sql.query(
+    `
+      select column_name
+      from information_schema.columns
+      where table_name = 'teacher_profiles'
+        and column_name in ('approved_at', 'review_note', 'submitted_at')
+      order by column_name
+    `,
+  )) as { column_name: string }[];
+  const constraints = (await sql.query(
+    `
+      select pg_get_constraintdef(oid) as definition
+      from pg_constraint
+      where conname = 'teacher_profiles_status_check'
+      limit 1
+    `,
+  )) as { definition: string }[];
+  const settings = (await sql.query(
+    "select key from app_settings where key in ('academic_term', 'period_closed') order by key",
+  )) as { key: string }[];
+  const columnNames = new Set(columns.map((row) => row.column_name));
+  const settingKeys = new Set(settings.map((row) => row.key));
+  const statusConstraint = constraints[0]?.definition ?? "";
+  return {
+    approvedAtColumn: columnNames.has("approved_at"),
+    reviewNoteColumn: columnNames.has("review_note"),
+    submittedAtColumn: columnNames.has("submitted_at"),
+    statusAllowsApproved: statusConstraint.includes("aprobado"),
+    academicTermSetting: settingKeys.has("academic_term"),
+    periodClosedSetting: settingKeys.has("period_closed"),
+  };
 }
 
 export async function seedCourseCatalog() {
@@ -753,39 +789,7 @@ export async function setPeriodClosed(
 }
 
 function teacherMeetsRules(profile: TeacherProfile) {
-  const rule = contractRules[profile.contract];
-  const byDay = new Map<DayKey, number[]>();
-  for (const key of profile.availability) {
-    const [day, hour] = key.split("-");
-    const current = byDay.get(day as DayKey) ?? [];
-    current.push(Number(hour));
-    byDay.set(day as DayKey, current);
-  }
-  const blockDays = Array.from(byDay.values()).filter(
-    (values) => maxConsecutive(values) >= 4,
-  ).length;
-  const countedCourses = profile.courses.filter(
-    (course) => !course.isThesis,
-  ).length;
-  return (
-    profile.availability.length >= rule.requiredHours &&
-    blockDays >= rule.requiredBlockDays &&
-    countedCourses > 0 &&
-    countedCourses <= rule.maxCourses
-  );
-}
-
-function maxConsecutive(values: number[]) {
-  const sorted = [...values].sort((a, b) => a - b);
-  let max = 0;
-  let current = 0;
-  let previous = Number.NaN;
-  for (const value of sorted) {
-    current = value === previous + 1 ? current + 1 : 1;
-    max = Math.max(max, current);
-    previous = value;
-  }
-  return max;
+  return validateTeacherRules(profile).complete;
 }
 
 function formatTimestamp() {

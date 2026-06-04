@@ -140,16 +140,16 @@ import type {
   SchedulePayload,
   ScheduleUser,
 } from "@/lib/schedule-db";
+import {
+  completionForRules,
+  type ScheduleValidation,
+  validateTeacherRules,
+} from "@/lib/schedule-rules";
 import { cn } from "@/lib/utils";
 
 type ViewKey = "docente" | "direccion" | "configuracion" | "usuarios";
 
-type Validation = {
-  selectedHours: number;
-  countedCourses: number;
-  blockDays: number;
-  complete: boolean;
-};
+type Validation = ScheduleValidation;
 
 type ScheduleAction =
   | { action: "setContract"; contract: ContractKey }
@@ -272,8 +272,8 @@ export function ScheduleApp({
   const selectedEvents = data.events.filter(
     (event) => event.teacherId === selectedTeacher.id,
   );
-  const validation = validateTeacher(profile);
-  const selectedValidation = validateTeacher(selectedTeacher);
+  const validation = validateTeacherRules(profile);
+  const selectedValidation = validateTeacherRules(selectedTeacher);
   const academicTerm = data.settings.academicTerm;
   const periodClosed = data.settings.periodClosed;
   const activeCatalog = data.catalog.filter(
@@ -2615,65 +2615,8 @@ function CoursesTable({
   );
 }
 
-function validateTeacher(profile: TeacherProfile): Validation {
-  const rule = contractRules[profile.contract];
-  const byDay = new Map<DayKey, number[]>();
-  for (const day of days) {
-    byDay.set(day.key, []);
-  }
-  for (const key of profile.availability) {
-    const [day, hour] = key.split("-");
-    const values = byDay.get(day as DayKey);
-    if (values) {
-      values.push(Number(hour));
-    }
-  }
-  const blockDays = Array.from(byDay.values()).filter(
-    (dayHours) => maxConsecutive(dayHours) >= 4,
-  ).length;
-  const countedCourses = profile.courses.filter(
-    (course) => !course.isThesis,
-  ).length;
-  return {
-    selectedHours: profile.availability.length,
-    countedCourses,
-    blockDays,
-    complete:
-      profile.availability.length >= rule.requiredHours &&
-      blockDays >= rule.requiredBlockDays &&
-      countedCourses > 0 &&
-      countedCourses <= rule.maxCourses,
-  };
-}
-
-function maxConsecutive(values: number[]) {
-  const sorted = [...values].sort((a, b) => a - b);
-  let max = 0;
-  let current = 0;
-  let previous = Number.NaN;
-  for (const value of sorted) {
-    current = value === previous + 1 ? current + 1 : 1;
-    max = Math.max(max, current);
-    previous = value;
-  }
-  return max;
-}
-
 function completionFor(profile: TeacherProfile, validation: Validation) {
-  return Math.min(
-    100,
-    Math.round(
-      (validation.selectedHours /
-        contractRules[profile.contract].requiredHours) *
-        70 +
-        (validation.blockDays /
-          contractRules[profile.contract].requiredBlockDays) *
-          20 +
-        (validation.countedCourses /
-          contractRules[profile.contract].maxCourses) *
-          10,
-    ),
-  );
+  return completionForRules(profile, validation);
 }
 
 function statusLabel(status: TeacherProfile["status"]) {
