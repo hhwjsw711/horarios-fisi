@@ -45,6 +45,7 @@ bun run smoke https://horarios-unmsm.vercel.app
 - Validación de reglas para tiempo completo, parcial 20 h y parcial 10 h.
 - Catálogo de escuelas y cursos editable desde Dirección.
 - Vista de Dirección para revisar docentes.
+- Búsqueda y filtros administrativos por docente, correo y estado.
 - Gestión de usuarios, roles y escuelas desde Dirección.
 - Aprobación de horarios y cierre/reapertura de periodo académico.
 - Observaciones administrativas con historial de eventos.

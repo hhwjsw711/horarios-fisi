@@ -155,6 +155,7 @@ type ViewKey =
   | "auditoria";
 
 type Validation = ScheduleValidation;
+type TeacherStatusFilter = TeacherProfile["status"] | "all";
 
 type ScheduleAction =
   | { action: "setContract"; contract: ContractKey }
@@ -204,6 +205,9 @@ export function ScheduleApp({
   const [school, setSchool] = useState(schools[0]);
   const [courseId, setCourseId] = useState(courseCatalog[0].id);
   const [showOnlyPending, setShowOnlyPending] = useState(false);
+  const [teacherQuery, setTeacherQuery] = useState("");
+  const [teacherStatusFilter, setTeacherStatusFilter] =
+    useState<TeacherStatusFilter>("all");
   const [saving, setSaving] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
 
@@ -269,9 +273,31 @@ export function ScheduleApp({
 
   const profile = data.profile;
   const allTeachers = data.teachers;
-  const filteredTeachers = showOnlyPending
-    ? allTeachers.filter((teacher) => teacher.status !== "aprobado")
-    : allTeachers;
+  const normalizedTeacherQuery = teacherQuery.trim().toLowerCase();
+  const filteredTeachers = allTeachers.filter((teacher) => {
+    if (showOnlyPending && teacher.status === "aprobado") {
+      return false;
+    }
+    if (
+      teacherStatusFilter !== "all" &&
+      teacher.status !== teacherStatusFilter
+    ) {
+      return false;
+    }
+    if (!normalizedTeacherQuery) {
+      return true;
+    }
+    return [
+      teacher.name,
+      teacher.email,
+      statusLabel(teacher.status),
+      contractRules[teacher.contract].label,
+      contractRules[teacher.contract].short,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedTeacherQuery);
+  });
   const selectedTeacher =
     allTeachers.find((teacher) => teacher.id === selectedTeacherId) ?? profile;
   const selectedEvents = data.events.filter(
@@ -571,9 +597,14 @@ export function ScheduleApp({
           setReviewNote={setReviewNote}
           setSelectedTeacherId={handleSelectTeacher}
           setShowOnlyPending={setShowOnlyPending}
+          setTeacherQuery={setTeacherQuery}
+          setTeacherStatusFilter={setTeacherStatusFilter}
           showOnlyPending={showOnlyPending}
           saving={saving}
+          teacherQuery={teacherQuery}
+          teacherStatusFilter={teacherStatusFilter}
           teachers={filteredTeachers}
+          totalTeacherCount={allTeachers.length}
           validation={selectedValidation}
         />
       ) : view === "direccion" ||
@@ -2137,8 +2168,13 @@ function DirectorView({
   setReviewNote,
   setSelectedTeacherId,
   setShowOnlyPending,
+  setTeacherQuery,
+  setTeacherStatusFilter,
   showOnlyPending,
+  teacherQuery,
+  teacherStatusFilter,
   teachers,
+  totalTeacherCount,
   validation,
 }: {
   events: ScheduleEvent[];
@@ -2154,10 +2190,20 @@ function DirectorView({
   setReviewNote: (note: string) => void;
   setSelectedTeacherId: (id: string) => void;
   setShowOnlyPending: (value: boolean) => void;
+  setTeacherQuery: (value: string) => void;
+  setTeacherStatusFilter: (value: TeacherStatusFilter) => void;
   showOnlyPending: boolean;
+  teacherQuery: string;
+  teacherStatusFilter: TeacherStatusFilter;
   teachers: TeacherProfile[];
+  totalTeacherCount: number;
   validation: Validation;
 }) {
+  const teacherFiltersActive =
+    showOnlyPending ||
+    teacherStatusFilter !== "all" ||
+    teacherQuery.trim().length > 0;
+
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_320px]">
       <Card className="min-h-0 overflow-hidden">
@@ -2171,7 +2217,39 @@ function DirectorView({
                 Revisión administrativa.
               </CardDescription>
             </div>
-            <Badge variant="secondary">{teachers.length}</Badge>
+            <Badge variant="secondary">
+              {teachers.length}/{totalTeacherCount}
+            </Badge>
+          </div>
+          <div className="mt-1.5 grid gap-1.5">
+            <Input
+              aria-label="Buscar docente"
+              onChange={(event) => setTeacherQuery(event.target.value)}
+              placeholder="Buscar docente o correo"
+              size="sm"
+              type="search"
+              value={teacherQuery}
+            />
+            <Select
+              value={teacherStatusFilter}
+              onValueChange={(value) =>
+                setTeacherStatusFilter(value as TeacherStatusFilter)
+              }
+            >
+              <SelectTrigger className="w-full" size="sm">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Estado</SelectLabel>
+                  <SelectItem value="all">Todos los estados</SelectItem>
+                  <SelectItem value="borrador">Borrador</SelectItem>
+                  <SelectItem value="enviado">Enviado</SelectItem>
+                  <SelectItem value="observado">Observado</SelectItem>
+                  <SelectItem value="aprobado">Aprobado</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </div>
           <Field className="mt-1.5 flex-row items-center justify-between gap-2 rounded-md bg-muted/25 px-2 py-1">
             <div>
@@ -2203,11 +2281,32 @@ function DirectorView({
                     <Users />
                   </EmptyMedia>
                   <EmptyHeader>
-                    <EmptyTitle>Sin docentes pendientes</EmptyTitle>
+                    <EmptyTitle>
+                      {teacherFiltersActive
+                        ? "Sin coincidencias"
+                        : "Sin docentes pendientes"}
+                    </EmptyTitle>
                     <EmptyDescription>
-                      Desactiva el filtro para revisar enviados.
+                      {teacherFiltersActive
+                        ? "Ajusta búsqueda o estado para revisar más docentes."
+                        : "Desactiva el filtro para revisar enviados."}
                     </EmptyDescription>
                   </EmptyHeader>
+                  {teacherFiltersActive ? (
+                    <EmptyContent>
+                      <Button
+                        onClick={() => {
+                          setTeacherQuery("");
+                          setTeacherStatusFilter("all");
+                          setShowOnlyPending(false);
+                        }}
+                        size="sm"
+                        variant="outline"
+                      >
+                        Limpiar filtros
+                      </Button>
+                    </EmptyContent>
+                  ) : null}
                 </Empty>
               )}
             </div>
