@@ -1,8 +1,6 @@
-import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { AppProviders } from "@/components/app-providers";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,6 +12,9 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
+const clerkProxyUrl =
+  process.env.NODE_ENV === "production" ? "/__clerk" : undefined;
 
 export const metadata: Metadata = {
   title: "Horarios UNMSM",
@@ -35,12 +36,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        <ClerkProvider proxyUrl="/__clerk">
-          <TooltipProvider>
-            {children}
-            <Toaster richColors position="top-right" />
-          </TooltipProvider>
-        </ClerkProvider>
+        <AppProviders clerkProxyUrl={clerkProxyUrl}>{children}</AppProviders>
       </body>
     </html>
   );

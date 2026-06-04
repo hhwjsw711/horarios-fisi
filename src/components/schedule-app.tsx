@@ -7,24 +7,37 @@ import {
   useUser,
 } from "@clerk/nextjs";
 import {
+  AlertCircle,
   ArrowDownToLine,
+  BookOpen,
   CalendarClock,
   Check,
+  ChevronRight,
   ClipboardCheck,
   FileSpreadsheet,
   GraduationCap,
+  Home,
   Info,
-  PanelLeft,
+  LockKeyhole,
   Plus,
+  Save,
   Send,
+  ShieldCheck,
   Trash2,
   Users,
 } from "lucide-react";
 import Image from "next/image";
+import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -32,6 +45,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Radio, RadioGroup } from "@/components/ui/radio-group";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -43,13 +69,24 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+  SidebarSeparator,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -58,7 +95,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Toolbar,
+  ToolbarButton,
+  ToolbarGroup,
+  ToolbarSeparator,
+} from "@/components/ui/toolbar";
 import {
   Tooltip,
   TooltipContent,
@@ -80,10 +122,21 @@ import {
 } from "@/lib/schedule-data";
 import { cn } from "@/lib/utils";
 
-const storageKey = "horarios-unmsm-state-v1";
+const storageKey = "horarios-unmsm-state-v2";
+
+type AppRole = "docente" | "direccion";
+type ViewKey = "docente" | "direccion";
+
+type Onboarding = {
+  role: AppRole;
+  school: string;
+  code: string;
+  complete: boolean;
+};
 
 type LocalState = {
   profile: TeacherProfile;
+  onboarding?: Onboarding;
 };
 
 type Validation = {
@@ -93,14 +146,60 @@ type Validation = {
   complete: boolean;
 };
 
+type ClerkScheduleMetadata = {
+  horariosRole?: AppRole;
+  horariosSchool?: string;
+  horariosCode?: string;
+};
+
+type ScheduleUser = {
+  firstName?: string | null;
+  fullName?: string | null;
+  primaryEmailAddress?: { emailAddress: string } | null;
+  publicMetadata?: Record<string, unknown>;
+  unsafeMetadata?: Record<string, unknown>;
+  update?: (params: {
+    unsafeMetadata: Record<string, unknown>;
+  }) => Promise<unknown>;
+};
+
+const demoOnboarding: Onboarding = {
+  role: "direccion",
+  school: schools[0],
+  code: "DEMO-2026",
+  complete: true,
+};
+
 export function ScheduleApp({ demo = false }: { demo?: boolean }) {
-  const { user } = useUser();
+  if (demo) {
+    return <ScheduleExperience demo isLoaded user={null} />;
+  }
+  return <AuthenticatedScheduleApp />;
+}
+
+function AuthenticatedScheduleApp() {
+  const { isLoaded, user } = useUser();
+  return <ScheduleExperience demo={false} isLoaded={isLoaded} user={user} />;
+}
+
+function ScheduleExperience({
+  demo,
+  isLoaded,
+  user,
+}: {
+  demo: boolean;
+  isLoaded: boolean;
+  user: ScheduleUser | null | undefined;
+}) {
   const [profile, setProfile] = useState<TeacherProfile>(seedTeachers[0]);
   const [selectedTeacherId, setSelectedTeacherId] = useState("me");
   const [school, setSchool] = useState(schools[0]);
   const [courseId, setCourseId] = useState(courseCatalog[0].id);
-  const [role, setRole] = useState("docente");
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [activeView, setActiveView] = useState<ViewKey>("docente");
+  const [showOnlyPending, setShowOnlyPending] = useState(false);
+  const [onboarding, setOnboarding] = useState<Onboarding | undefined>(
+    demo ? demoOnboarding : undefined,
+  );
 
   useEffect(() => {
     const raw = window.localStorage.getItem(storageKey);
@@ -110,26 +209,77 @@ export function ScheduleApp({ demo = false }: { demo?: boolean }) {
     try {
       const parsed = JSON.parse(raw) as LocalState;
       setProfile(parsed.profile);
+      if (parsed.onboarding?.complete) {
+        setOnboarding(parsed.onboarding);
+        setActiveView(parsed.onboarding.role);
+      }
     } catch {
       window.localStorage.removeItem(storageKey);
     }
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify({ profile }));
-  }, [profile]);
+    if (demo || !isLoaded || !user || onboarding?.complete) {
+      return;
+    }
+    const metadata = {
+      ...user.publicMetadata,
+      ...user.unsafeMetadata,
+    } as ClerkScheduleMetadata;
+    if (metadata.horariosRole && isRole(metadata.horariosRole)) {
+      const next = {
+        role: metadata.horariosRole,
+        school: metadata.horariosSchool ?? schools[0],
+        code: metadata.horariosCode ?? "",
+        complete: true,
+      };
+      setOnboarding(next);
+      setActiveView(next.role);
+    }
+  }, [demo, isLoaded, onboarding?.complete, user]);
 
+  useEffect(() => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ onboarding, profile }),
+    );
+  }, [onboarding, profile]);
+
+  const displayProfile = useMemo<TeacherProfile>(
+    () => ({
+      ...profile,
+      email:
+        user?.primaryEmailAddress?.emailAddress ??
+        (demo ? profile.email : profile.email),
+      name: user?.fullName ?? user?.firstName ?? profile.name,
+    }),
+    [demo, profile, user],
+  );
+
+  const allTeachers = useMemo(
+    () => [displayProfile, ...seedTeachers.slice(1)],
+    [displayProfile],
+  );
+  const filteredTeachers = useMemo(
+    () =>
+      showOnlyPending
+        ? allTeachers.filter((teacher) => teacher.status !== "enviado")
+        : allTeachers,
+    [allTeachers, showOnlyPending],
+  );
   const selectedTeacher = useMemo(() => {
     if (selectedTeacherId === "me") {
-      return profile;
+      return displayProfile;
     }
     return (
-      seedTeachers.find((teacher) => teacher.id === selectedTeacherId) ??
-      profile
+      allTeachers.find((teacher) => teacher.id === selectedTeacherId) ??
+      displayProfile
     );
-  }, [profile, selectedTeacherId]);
-
-  const validation = useMemo(() => validateTeacher(profile), [profile]);
+  }, [allTeachers, displayProfile, selectedTeacherId]);
+  const validation = useMemo(
+    () => validateTeacher(displayProfile),
+    [displayProfile],
+  );
   const selectedValidation = useMemo(
     () => validateTeacher(selectedTeacher),
     [selectedTeacher],
@@ -141,24 +291,29 @@ export function ScheduleApp({ demo = false }: { demo?: boolean }) {
       ),
     [school],
   );
-  const allTeachers = useMemo(
-    () => [profile, ...seedTeachers.slice(1)],
-    [profile],
-  );
+  const effectiveRole = onboarding?.complete ? onboarding.role : "docente";
+  const canUseDirection = effectiveRole === "direccion";
+  const needsOnboarding = !demo && isLoaded && Boolean(user) && !onboarding;
   const completion = Math.min(
     100,
     Math.round(
       (validation.selectedHours /
-        contractRules[profile.contract].requiredHours) *
+        contractRules[displayProfile.contract].requiredHours) *
         70 +
         (validation.blockDays /
-          contractRules[profile.contract].requiredBlockDays) *
+          contractRules[displayProfile.contract].requiredBlockDays) *
           20 +
         (validation.countedCourses /
-          contractRules[profile.contract].maxCourses) *
+          contractRules[displayProfile.contract].maxCourses) *
           10,
     ),
   );
+
+  useEffect(() => {
+    if (!canUseDirection && activeView === "direccion") {
+      setActiveView("docente");
+    }
+  }, [activeView, canUseDirection]);
 
   const handleToggleSlot = (day: DayKey, hour: number) => {
     const key = slotKey(day, hour);
@@ -236,6 +391,27 @@ export function ScheduleApp({ demo = false }: { demo?: boolean }) {
     toast.success("Horario enviado para revisión.");
   };
 
+  const handleOnboardingComplete = async (next: Onboarding) => {
+    setOnboarding(next);
+    setSchool(next.school);
+    setActiveView(next.role);
+    if (!demo && user?.update) {
+      try {
+        await user.update({
+          unsafeMetadata: {
+            ...user.unsafeMetadata,
+            horariosCode: next.code,
+            horariosRole: next.role,
+            horariosSchool: next.school,
+          },
+        });
+      } catch {
+        toast.warning("Rol guardado localmente. Clerk no aceptó la metadata.");
+      }
+    }
+    toast.success("Perfil institucional listo.");
+  };
+
   const handleExportXlsx = async () => {
     await exportXlsx(selectedTeacher);
     toast.success("Excel generado.");
@@ -247,81 +423,80 @@ export function ScheduleApp({ demo = false }: { demo?: boolean }) {
   };
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="flex min-h-screen">
-        <aside className="hidden w-72 shrink-0 border-sidebar-border border-r bg-sidebar text-sidebar-foreground lg:flex lg:flex-col">
-          <SidebarContent
+    <SidebarProvider>
+      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+        <Sidebar collapsible="icon" className="border-sidebar-border">
+          <AppSidebar
             canSignOut={!demo && Boolean(user)}
+            canUseDirection={canUseDirection}
             completion={completion}
-            role={role}
-            setRole={setRole}
+            currentRole={effectiveRole}
+            onNavigate={setActiveView}
+            pendingCount={
+              allTeachers.filter((teacher) => teacher.status !== "enviado")
+                .length
+            }
+            roleIsReady={Boolean(onboarding?.complete)}
+            selectedView={activeView}
             userName={user?.firstName ?? (demo ? "Modo demo" : "Docente")}
           />
-        </aside>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-6">
-            <div className="flex min-w-0 items-center gap-3">
-              <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" className="lg:hidden">
-                    <PanelLeft data-icon="inline-start" />
-                    <span className="sr-only">Abrir navegación</span>
-                  </Button>
-                </SheetTrigger>
-                <SheetContent
-                  side="left"
-                  className="w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"
-                >
-                  <SheetHeader className="sr-only">
-                    <SheetTitle>Navegación</SheetTitle>
-                    <SheetDescription>
-                      Menú principal de Horarios UNMSM
-                    </SheetDescription>
-                  </SheetHeader>
-                  <SidebarContent
-                    canSignOut={!demo && Boolean(user)}
-                    completion={completion}
-                    role={role}
-                    setRole={(value) => {
-                      setRole(value);
-                      setMobileOpen(false);
-                    }}
-                    userName={
-                      user?.firstName ?? (demo ? "Modo demo" : "Docente")
-                    }
-                  />
-                </SheetContent>
-              </Sheet>
+          <SidebarRail />
+        </Sidebar>
+        <SidebarInset className="h-screen min-h-0 overflow-hidden">
+          <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-3 md:px-5">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <SidebarTrigger />
+              <Separator orientation="vertical" className="h-6" />
               <div className="min-w-0">
-                <p className="text-muted-foreground text-xs">
-                  Semestre académico 2026.2
-                </p>
-                <h1 className="truncate font-serif text-xl font-semibold md:text-2xl">
+                <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                  <span>Semestre académico 2026.2</span>
+                  <ChevronRight className="size-3" />
+                  <span className="truncate">
+                    {activeView === "direccion" ? "Dirección" : "Docente"}
+                  </span>
+                </div>
+                <h1 className="truncate font-serif text-lg font-semibold md:text-xl">
                   Horarios UNMSM
                 </h1>
               </div>
             </div>
-            {user ? (
-              <div className="flex items-center gap-3">
-                <Badge
-                  variant={
-                    profile.status === "enviado" ? "default" : "secondary"
-                  }
-                >
-                  {statusLabel(profile.status)}
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge
+                variant={
+                  displayProfile.status === "enviado" ? "default" : "secondary"
+                }
+                className="hidden sm:inline-flex"
+              >
+                {statusLabel(displayProfile.status)}
+              </Badge>
+              {onboarding?.complete ? (
+                <Badge variant="outline" className="hidden md:inline-flex">
+                  {roleLabel(onboarding.role)}
                 </Badge>
-                <UserButton />
-              </div>
-            ) : null}
-          </header>
-          <Tabs value={role} onValueChange={setRole} className="flex-1">
-            <div className="border-b bg-card px-4 py-2 md:px-6 lg:hidden">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="docente">Docente</TabsTrigger>
-                <TabsTrigger value="direccion">Dirección</TabsTrigger>
-              </TabsList>
+              ) : null}
+              {user ? <UserButton /> : null}
             </div>
-            <TabsContent value="docente" className="m-0">
+          </header>
+          <div className="min-h-0 flex-1 overflow-hidden bg-background">
+            {needsOnboarding ? (
+              <OnboardingView
+                defaultSchool={school}
+                onComplete={handleOnboardingComplete}
+                userEmail={user?.primaryEmailAddress?.emailAddress}
+              />
+            ) : activeView === "direccion" && canUseDirection ? (
+              <DirectorView
+                handleExportPdf={handleExportPdf}
+                handleExportXlsx={handleExportXlsx}
+                selectedTeacher={selectedTeacher}
+                selectedTeacherId={selectedTeacherId}
+                setSelectedTeacherId={setSelectedTeacherId}
+                setShowOnlyPending={setShowOnlyPending}
+                showOnlyPending={showOnlyPending}
+                teachers={filteredTeachers}
+                validation={selectedValidation}
+              />
+            ) : (
               <DocenteView
                 catalogForSchool={catalogForSchool}
                 courseId={courseId}
@@ -330,112 +505,330 @@ export function ScheduleApp({ demo = false }: { demo?: boolean }) {
                 handleRemoveCourse={handleRemoveCourse}
                 handleSubmit={handleSubmit}
                 handleToggleSlot={handleToggleSlot}
-                profile={profile}
+                profile={displayProfile}
                 school={school}
                 setCourseId={setCourseId}
                 setSchool={setSchool}
                 validation={validation}
               />
-            </TabsContent>
-            <TabsContent value="direccion" className="m-0">
-              <DirectorView
-                handleExportPdf={handleExportPdf}
-                handleExportXlsx={handleExportXlsx}
-                selectedTeacher={selectedTeacher}
-                selectedTeacherId={selectedTeacherId}
-                setSelectedTeacherId={setSelectedTeacherId}
-                teachers={allTeachers}
-                validation={selectedValidation}
-              />
-            </TabsContent>
-          </Tabs>
-        </div>
+            )}
+          </div>
+        </SidebarInset>
       </div>
-    </main>
+    </SidebarProvider>
   );
 }
 
-function SidebarContent({
+function AppSidebar({
   canSignOut,
+  canUseDirection,
   completion,
-  role,
-  setRole,
+  currentRole,
+  onNavigate,
+  pendingCount,
+  roleIsReady,
+  selectedView,
   userName,
 }: {
   canSignOut: boolean;
+  canUseDirection: boolean;
   completion: number;
-  role: string;
-  setRole: (value: string) => void;
+  currentRole: AppRole;
+  onNavigate: (view: ViewKey) => void;
+  pendingCount: number;
+  roleIsReady: boolean;
+  selectedView: ViewKey;
   userName: string;
 }) {
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-sidebar-border border-b p-5">
-        <Image
-          src="/escudo-unmsm.png"
-          alt="Escudo UNMSM"
-          width={44}
-          height={44}
-          className="rounded-md bg-vellum p-1"
-          priority
-        />
-        <div className="min-w-0">
-          <p className="text-gold text-xs font-semibold uppercase tracking-[0.18em]">
-            UNMSM
-          </p>
-          <p className="truncate font-serif text-lg font-semibold">Horarios</p>
-        </div>
-      </div>
-      <div className="flex flex-1 flex-col gap-5 p-5">
-        <div className="flex flex-col gap-2">
-          <p className="text-sidebar-foreground/70 text-xs">Sesión activa</p>
-          <p className="font-medium">{userName}</p>
-        </div>
-        <div className="flex flex-col gap-2">
-          <Button
-            variant={role === "docente" ? "secondary" : "ghost"}
-            className="justify-start text-sidebar-foreground"
-            onClick={() => setRole("docente")}
-          >
-            <CalendarClock data-icon="inline-start" />
-            Docente
-          </Button>
-          <Button
-            variant={role === "direccion" ? "secondary" : "ghost"}
-            className="justify-start text-sidebar-foreground"
-            onClick={() => setRole("direccion")}
-          >
-            <Users data-icon="inline-start" />
-            Dirección
-          </Button>
-        </div>
-        <Separator className="bg-sidebar-border" />
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-sidebar-foreground/70">Progreso docente</span>
-            <span className="text-gold font-medium">{completion}%</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-sidebar-accent">
-            <div
-              className="h-full bg-gold"
-              style={{ width: `${completion}%` }}
-            />
+    <>
+      <SidebarHeader className="border-sidebar-border border-b p-3">
+        <div className="flex items-center gap-3 rounded-lg px-1 py-1">
+          <Image
+            src="/escudo-unmsm.png"
+            alt="Escudo UNMSM"
+            width={40}
+            height={40}
+            className="rounded-md bg-vellum p-1"
+            priority
+          />
+          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+            <p className="text-gold text-[11px] font-semibold uppercase tracking-[0.18em]">
+              UNMSM
+            </p>
+            <p className="truncate font-serif font-semibold text-lg">
+              Horarios
+            </p>
           </div>
         </div>
-      </div>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Sesión</SidebarGroupLabel>
+          <SidebarGroupContent className="space-y-2 px-2 group-data-[collapsible=icon]:hidden">
+            <p className="truncate font-medium text-sidebar-foreground">
+              {userName}
+            </p>
+            <p className="text-sidebar-foreground/70 text-xs">
+              {roleIsReady
+                ? roleLabel(currentRole)
+                : "Perfil institucional pendiente"}
+            </p>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarSeparator />
+        <SidebarGroup>
+          <SidebarGroupLabel>Trabajo</SidebarGroupLabel>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={selectedView === "docente"}
+                onClick={() => onNavigate("docente")}
+                tooltip="Docente"
+              >
+                <CalendarClock />
+                <span>Docente</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                aria-disabled={!canUseDirection}
+                disabled={!canUseDirection}
+                isActive={selectedView === "direccion"}
+                onClick={() => onNavigate("direccion")}
+                tooltip={
+                  canUseDirection ? "Dirección" : "Disponible para directores"
+                }
+              >
+                {canUseDirection ? <Users /> : <LockKeyhole />}
+                <span>Dirección</span>
+              </SidebarMenuButton>
+              {canUseDirection ? (
+                <SidebarMenuBadge>{pendingCount}</SidebarMenuBadge>
+              ) : null}
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+        <SidebarSeparator />
+        <SidebarGroup>
+          <SidebarGroupLabel>Progreso</SidebarGroupLabel>
+          <SidebarGroupContent className="space-y-3 px-2 group-data-[collapsible=icon]:hidden">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-sidebar-foreground/70">Docente</span>
+              <span className="text-gold font-medium">{completion}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-sidebar-accent">
+              <div
+                className="h-full bg-gold"
+                style={{ width: `${completion}%` }}
+              />
+            </div>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
       {canSignOut ? (
-        <div className="border-sidebar-border border-t p-5">
+        <SidebarFooter className="border-sidebar-border border-t p-3">
           <SignOutButton>
             <Button
               variant="outline"
-              className="w-full border-sidebar-border bg-transparent text-sidebar-foreground"
+              className="w-full border-sidebar-border bg-transparent text-sidebar-foreground group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:px-0"
             >
-              Cerrar sesión
+              <span className="group-data-[collapsible=icon]:hidden">
+                Cerrar sesión
+              </span>
+              <Home className="hidden group-data-[collapsible=icon]:block" />
             </Button>
           </SignOutButton>
-        </div>
+        </SidebarFooter>
       ) : null}
-    </div>
+    </>
+  );
+}
+
+function OnboardingView({
+  defaultSchool,
+  onComplete,
+  userEmail,
+}: {
+  defaultSchool: string;
+  onComplete: (next: Onboarding) => Promise<void>;
+  userEmail?: string;
+}) {
+  const [role, setRole] = useState<AppRole>("docente");
+  const [school, setSchool] = useState(defaultSchool);
+  const [code, setCode] = useState("");
+  const [saving, setSaving] = useState(false);
+  const codeIsValid = code.trim().length >= 4;
+
+  const handleSubmit = async () => {
+    if (!codeIsValid) {
+      toast.error("Ingresa un código institucional válido.");
+      return;
+    }
+    setSaving(true);
+    await onComplete({
+      role,
+      school,
+      code: code.trim(),
+      complete: true,
+    });
+    setSaving(false);
+  };
+
+  return (
+    <section className="flex h-full min-h-0 items-center justify-center overflow-hidden p-4 md:p-6">
+      <div className="grid h-full max-h-[720px] w-full max-w-6xl gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <Card className="min-h-0 overflow-hidden">
+          <CardHeader className="border-b">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <CardTitle className="font-serif text-2xl">
+                  Configura tu acceso institucional
+                </CardTitle>
+                <CardDescription>
+                  Elige tu rol para activar la experiencia correcta.
+                </CardDescription>
+              </div>
+              <Badge variant="secondary">Onboarding</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="grid h-full min-h-0 gap-4 p-4 md:grid-cols-[1fr_1fr]">
+            <div className="space-y-4">
+              <Field>
+                <FieldLabel>Rol en el proceso de horarios</FieldLabel>
+                <FieldDescription>
+                  Docentes registran disponibilidad. Dirección revisa y exporta.
+                </FieldDescription>
+                <RadioGroup
+                  className="grid gap-3 pt-1"
+                  value={role}
+                  onValueChange={(value) => setRole(value as AppRole)}
+                >
+                  <RoleChoice
+                    checked={role === "docente"}
+                    description="Registro de disponibilidad, cursos y envío a revisión."
+                    icon={<CalendarClock className="size-4 text-gold" />}
+                    label="Docente"
+                    value="docente"
+                  />
+                  <RoleChoice
+                    checked={role === "direccion"}
+                    description="Panel de revisión, validación y exportación de docentes."
+                    icon={<ShieldCheck className="size-4 text-gold" />}
+                    label="Director o administrativo"
+                    value="direccion"
+                  />
+                </RadioGroup>
+              </Field>
+            </div>
+            <div className="space-y-4">
+              <Field>
+                <FieldLabel>Escuela profesional</FieldLabel>
+                <Select value={school} onValueChange={setSchool}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Selecciona escuela" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Escuelas</SelectLabel>
+                      {schools.map((item) => (
+                        <SelectItem key={item} value={item}>
+                          {item}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel>Código o legajo</FieldLabel>
+                <Input
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  placeholder="Ej. 082026"
+                />
+                <FieldDescription>
+                  Se guarda en Clerk como metadata de usuario.
+                </FieldDescription>
+              </Field>
+              <Alert variant="info">
+                <Info />
+                <AlertTitle>Cuenta detectada</AlertTitle>
+                <AlertDescription>
+                  {userEmail ?? "Correo institucional pendiente de Clerk"}
+                </AlertDescription>
+              </Alert>
+              <Button
+                className="w-full"
+                disabled={!codeIsValid}
+                loading={saving}
+                onClick={handleSubmit}
+              >
+                <Save data-icon="inline-start" />
+                Guardar perfil
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="min-h-0 overflow-hidden bg-primary text-primary-foreground">
+          <CardHeader>
+            <CardTitle className="font-serif text-2xl">
+              Flujo listo para producción
+            </CardTitle>
+            <CardDescription className="text-primary-foreground/75">
+              El rol desbloquea navegación, permisos y validaciones.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {[
+              "Onboarding persistido en Clerk y localStorage.",
+              "Dirección queda bloqueado para usuarios docentes.",
+              "La UI mantiene pantalla completa sin scroll global.",
+              "Los exports se ejecutan desde el rol autorizado.",
+            ].map((item) => (
+              <div className="flex items-center gap-2" key={item}>
+                <Check className="size-4 text-gold" />
+                <span>{item}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+function RoleChoice({
+  checked,
+  description,
+  icon,
+  label,
+  value,
+}: {
+  checked: boolean;
+  description: string;
+  icon: React.ReactNode;
+  label: string;
+  value: AppRole;
+}) {
+  return (
+    <Label
+      className={cn(
+        "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
+        checked ? "border-primary bg-accent" : "bg-card hover:bg-accent/60",
+      )}
+    >
+      <Radio value={value} />
+      <span className="flex min-w-0 flex-1 gap-3">
+        <span className="mt-0.5">{icon}</span>
+        <span>
+          <span className="block font-medium">{label}</span>
+          <span className="block text-muted-foreground text-sm">
+            {description}
+          </span>
+        </span>
+      </span>
+    </Label>
   );
 }
 
@@ -469,63 +862,68 @@ function DocenteView({
   const rule = contractRules[profile.contract];
 
   return (
-    <section className="grid gap-4 p-4 md:p-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="flex min-w-0 flex-col gap-4">
-        <Card className="overflow-hidden">
-          <CardHeader className="flex flex-col gap-3 border-b bg-card md:flex-row md:items-center md:justify-between">
-            <div>
-              <CardTitle className="font-serif text-2xl">
+    <section className="grid h-full min-h-0 gap-3 overflow-auto p-3 md:p-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:overflow-hidden">
+      <div className="grid min-h-0 gap-3 xl:grid-rows-[minmax(0,1fr)_240px]">
+        <Card className="h-[560px] min-h-0 overflow-hidden xl:h-auto">
+          <CardHeader className="flex shrink-0 flex-col gap-3 border-b bg-card px-4 py-3 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="truncate font-serif text-xl">
                 Disponibilidad docente
               </CardTitle>
-              <CardDescription>
-                Marca bloques horarios y valida las reglas de tu clase docente.
+              <CardDescription className="truncate">
+                Marca bloques y cumple las reglas de tu clase docente.
               </CardDescription>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={profile.contract}
-                onValueChange={handleContractChange}
-              >
-                <SelectTrigger className="w-[210px]">
-                  <SelectValue placeholder="Clase docente" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectLabel>Clase docente</SelectLabel>
-                    {Object.entries(contractRules).map(([key, item]) => (
-                      <SelectItem key={key} value={key}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <Button onClick={handleSubmit}>
-                <Send data-icon="inline-start" />
-                Enviar horario
-              </Button>
-            </div>
+            <Toolbar className="shrink-0 border-0 bg-transparent p-0 shadow-none">
+              <ToolbarGroup>
+                <Select
+                  value={profile.contract}
+                  onValueChange={handleContractChange}
+                >
+                  <SelectTrigger className="w-[190px]">
+                    <SelectValue placeholder="Clase docente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Clase docente</SelectLabel>
+                      {Object.entries(contractRules).map(([key, item]) => (
+                        <SelectItem key={key} value={key}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <ToolbarSeparator orientation="vertical" />
+                <ToolbarButton onClick={handleSubmit} render={<Button />}>
+                  <Send data-icon="inline-start" />
+                  Enviar
+                </ToolbarButton>
+              </ToolbarGroup>
+            </Toolbar>
           </CardHeader>
-          <CardContent className="p-0">
-            <ScheduleGrid
+          <CardContent className="h-[calc(100%-73px)] min-h-0 p-0">
+            <ScheduleBoard
               availability={profile.availability}
               interactive
               onToggleSlot={handleToggleSlot}
             />
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>Cursos seleccionados</CardTitle>
-            <CardDescription>
-              Los cursos se listan en el orden en que fueron adicionados.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4 p-4">
-            <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+        <Card className="h-[280px] min-h-0 overflow-hidden xl:h-auto">
+          <CardHeader className="flex shrink-0 flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="truncate text-base">
+                Cursos seleccionados
+              </CardTitle>
+              <CardDescription className="truncate">
+                Escuela, curso y carga permitida por contrato.
+              </CardDescription>
+            </div>
+            <div className="grid shrink-0 gap-2 md:grid-cols-[170px_220px_auto]">
               <Select value={school} onValueChange={setSchool}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Escuela profesional" />
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Escuela" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
@@ -539,7 +937,7 @@ function DocenteView({
                 </SelectContent>
               </Select>
               <Select value={courseId} onValueChange={setCourseId}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Curso" />
                 </SelectTrigger>
                 <SelectContent>
@@ -555,9 +953,11 @@ function DocenteView({
               </Select>
               <Button onClick={handleAddCourse}>
                 <Plus data-icon="inline-start" />
-                Adicionar curso
+                Agregar
               </Button>
             </div>
+          </CardHeader>
+          <CardContent className="h-[calc(100%-73px)] min-h-0 p-0">
             <CoursesTable
               courses={profile.courses}
               onRemoveCourse={handleRemoveCourse}
@@ -565,39 +965,59 @@ function DocenteView({
           </CardContent>
         </Card>
       </div>
-      <aside className="flex flex-col gap-4">
-        <RulePanel profile={profile} validation={validation} />
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ClipboardCheck className="size-4 text-gold" />
-              Cierre de revisión
-            </CardTitle>
-            <CardDescription>
-              Resumen antes de enviar a Dirección.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm">
-            <MetricRow
-              label="Horas marcadas"
-              value={`${validation.selectedHours}/${rule.requiredHours}`}
-            />
-            <MetricRow
-              label="Días con bloque de 4 h"
-              value={`${validation.blockDays}/${rule.requiredBlockDays}`}
-            />
-            <MetricRow
-              label="Cursos contados"
-              value={`${validation.countedCourses}/${rule.maxCourses}`}
-            />
-            <Separator />
-            <p className="text-muted-foreground">
-              {profile.submittedAt
-                ? `Último envío: ${profile.submittedAt}`
-                : "Aún no se registró un envío."}
-            </p>
-          </CardContent>
-        </Card>
+      <aside className="min-h-0 overflow-hidden">
+        <ScrollArea scrollFade scrollbarGutter>
+          <div className="flex min-h-full flex-col gap-3">
+            <RulePanel profile={profile} validation={validation} />
+            <Card>
+              <CardHeader className="space-y-1">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ClipboardCheck className="size-4 text-gold" />
+                  Cierre de revisión
+                </CardTitle>
+                <CardDescription>
+                  Resumen antes de enviar a Dirección.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3 text-sm">
+                <MetricRow
+                  label="Horas marcadas"
+                  value={`${validation.selectedHours}/${rule.requiredHours}`}
+                />
+                <MetricRow
+                  label="Días con bloque de 4 h"
+                  value={`${validation.blockDays}/${rule.requiredBlockDays}`}
+                />
+                <MetricRow
+                  label="Cursos contados"
+                  value={`${validation.countedCourses}/${rule.maxCourses}`}
+                />
+                <Separator />
+                <p className="text-muted-foreground">
+                  {profile.submittedAt
+                    ? `Último envío: ${profile.submittedAt}`
+                    : "Aún no se registró un envío."}
+                </p>
+              </CardContent>
+            </Card>
+            <Alert variant={validation.complete ? "success" : "warning"}>
+              {validation.complete ? <ShieldCheck /> : <AlertCircle />}
+              <AlertTitle>
+                {validation.complete ? "Listo para enviar" : "Faltan reglas"}
+              </AlertTitle>
+              <AlertDescription>
+                {validation.complete
+                  ? "La disponibilidad cumple con las reglas configuradas."
+                  : "Completa horas, bloques y cursos antes de enviar."}
+              </AlertDescription>
+              <AlertAction>
+                <Button size="sm" onClick={handleSubmit}>
+                  Enviar
+                </Button>
+              </AlertAction>
+            </Alert>
+          </div>
+        </ScrollArea>
       </aside>
     </section>
   );
@@ -609,6 +1029,8 @@ function DirectorView({
   selectedTeacher,
   selectedTeacherId,
   setSelectedTeacherId,
+  setShowOnlyPending,
+  showOnlyPending,
   teachers,
   validation,
 }: {
@@ -617,100 +1039,164 @@ function DirectorView({
   selectedTeacher: TeacherProfile;
   selectedTeacherId: string;
   setSelectedTeacherId: (id: string) => void;
+  setShowOnlyPending: (value: boolean) => void;
+  showOnlyPending: boolean;
   teachers: TeacherProfile[];
   validation: Validation;
 }) {
   return (
-    <section className="grid gap-4 p-4 md:p-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-      <Card className="h-fit">
-        <CardHeader className="border-b">
-          <CardTitle>Lista de docentes</CardTitle>
-          <CardDescription>
-            Selecciona un docente para revisar su disponibilidad.
-          </CardDescription>
+    <section className="grid h-full min-h-0 gap-3 overflow-auto p-3 md:p-4 xl:grid-cols-[320px_minmax(0,1fr)] xl:overflow-hidden">
+      <Card className="h-[394px] min-h-0 overflow-hidden xl:h-auto">
+        <CardHeader className="border-b px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="truncate text-base">
+                Lista de docentes
+              </CardTitle>
+              <CardDescription className="truncate">
+                Revisión administrativa.
+              </CardDescription>
+            </div>
+            <Badge variant="secondary">{teachers.length}</Badge>
+          </div>
+          <Field className="mt-3 flex-row items-center justify-between gap-3">
+            <div>
+              <FieldLabel className="text-xs">Solo pendientes</FieldLabel>
+              <FieldDescription>Oculta enviados.</FieldDescription>
+            </div>
+            <Switch
+              checked={showOnlyPending}
+              onCheckedChange={setShowOnlyPending}
+            />
+          </Field>
         </CardHeader>
-        <CardContent className="flex flex-col gap-2 p-3">
-          {teachers.map((teacher, index) => (
-            <button
-              className={cn(
-                "flex w-full items-center justify-between rounded-md border p-3 text-left text-sm transition-colors",
-                selectedTeacherId === teacher.id
-                  ? "border-primary bg-accent"
-                  : "border-border bg-card hover:bg-accent",
+        <CardContent className="h-[calc(100%-133px)] min-h-0 p-2">
+          <ScrollArea scrollFade scrollbarGutter>
+            <div className="space-y-2">
+              {teachers.length ? (
+                teachers.map((teacher, index) => (
+                  <TeacherButton
+                    index={index}
+                    key={teacher.id}
+                    onClick={() => setSelectedTeacherId(teacher.id)}
+                    selected={selectedTeacherId === teacher.id}
+                    teacher={teacher}
+                  />
+                ))
+              ) : (
+                <Empty className="py-10">
+                  <EmptyMedia variant="icon">
+                    <Users />
+                  </EmptyMedia>
+                  <EmptyHeader>
+                    <EmptyTitle>Sin docentes pendientes</EmptyTitle>
+                    <EmptyDescription>
+                      Desactiva el filtro para revisar enviados.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               )}
-              key={teacher.id}
-              onClick={() => setSelectedTeacherId(teacher.id)}
-              type="button"
-            >
-              <span className="flex min-w-0 items-center gap-3">
-                <span className="text-muted-foreground tabular-nums">
-                  {index + 1}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">
-                    {teacher.name}
-                  </span>
-                  <span className="block truncate text-muted-foreground text-xs">
-                    {teacher.email}
-                  </span>
-                </span>
-              </span>
-              <Badge
-                variant={teacher.status === "enviado" ? "default" : "secondary"}
-              >
-                {contractRules[teacher.contract].short}
-              </Badge>
-            </button>
-          ))}
+            </div>
+          </ScrollArea>
         </CardContent>
       </Card>
-      <div className="flex min-w-0 flex-col gap-4">
-        <Card>
-          <CardHeader className="flex flex-col gap-3 border-b md:flex-row md:items-center md:justify-between">
-            <div>
-              <CardTitle className="font-serif text-2xl">
+      <div className="grid min-h-0 gap-3 xl:grid-rows-[minmax(0,1fr)_238px]">
+        <Card className="h-[500px] min-h-0 overflow-hidden xl:h-auto">
+          <CardHeader className="flex shrink-0 flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="truncate font-serif text-xl">
                 {selectedTeacher.name}
               </CardTitle>
-              <CardDescription>
-                {contractRules[selectedTeacher.contract].label} -{" "}
+              <CardDescription className="truncate">
+                {contractRules[selectedTeacher.contract].label} ·{" "}
                 {statusLabel(selectedTeacher.status)}
               </CardDescription>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={handleExportPdf}>
-                <ArrowDownToLine data-icon="inline-start" />
-                Exportar PDF
-              </Button>
-              <Button onClick={handleExportXlsx}>
-                <FileSpreadsheet data-icon="inline-start" />
-                Exportar Excel
-              </Button>
-            </div>
+            <Toolbar className="shrink-0 border-0 bg-transparent p-0 shadow-none">
+              <ToolbarGroup>
+                <ToolbarButton
+                  onClick={handleExportPdf}
+                  render={<Button variant="outline" />}
+                >
+                  <ArrowDownToLine data-icon="inline-start" />
+                  PDF
+                </ToolbarButton>
+                <ToolbarButton onClick={handleExportXlsx} render={<Button />}>
+                  <FileSpreadsheet data-icon="inline-start" />
+                  Excel
+                </ToolbarButton>
+              </ToolbarGroup>
+            </Toolbar>
           </CardHeader>
-          <CardContent className="p-0">
-            <ScheduleGrid availability={selectedTeacher.availability} />
+          <CardContent className="h-[calc(100%-73px)] min-h-0 p-0">
+            <ScheduleBoard availability={selectedTeacher.availability} />
           </CardContent>
         </Card>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <Card>
-            <CardHeader className="border-b">
-              <CardTitle>Cursos seleccionados</CardTitle>
+        <div className="grid min-h-0 gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <Card className="h-[280px] min-h-0 overflow-hidden xl:h-auto">
+            <CardHeader className="border-b px-4 py-3">
+              <CardTitle className="text-base">Cursos del docente</CardTitle>
               <CardDescription>
-                Vista administrativa para validación y exportación.
+                Vista administrativa para validación.
               </CardDescription>
             </CardHeader>
-            <CardContent className="p-4">
+            <CardContent className="h-[calc(100%-73px)] min-h-0 p-0">
               <CoursesTable courses={selectedTeacher.courses} />
             </CardContent>
           </Card>
-          <RulePanel profile={selectedTeacher} validation={validation} />
+          <RulePanel
+            profile={selectedTeacher}
+            validation={validation}
+            compact
+          />
         </div>
       </div>
     </section>
   );
 }
 
-function ScheduleGrid({
+function TeacherButton({
+  index,
+  onClick,
+  selected,
+  teacher,
+}: {
+  index: number;
+  onClick: () => void;
+  selected: boolean;
+  teacher: TeacherProfile;
+}) {
+  return (
+    <button
+      className={cn(
+        "flex h-[76px] w-full items-center justify-between gap-3 rounded-lg border px-3 text-left text-sm transition-colors",
+        selected ? "border-primary bg-accent" : "bg-card hover:bg-accent/60",
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      <span className="flex min-w-0 items-center gap-3">
+        <span className="text-muted-foreground tabular-nums">{index + 1}</span>
+        <span className="min-w-0">
+          <span className="block truncate font-medium">{teacher.name}</span>
+          <span className="block truncate text-muted-foreground text-xs">
+            {teacher.email}
+          </span>
+        </span>
+      </span>
+      <span className="flex shrink-0 flex-col items-end gap-1">
+        <Badge variant={teacher.status === "enviado" ? "default" : "secondary"}>
+          {contractRules[teacher.contract].short}
+        </Badge>
+        <span className="text-muted-foreground text-[11px]">
+          {statusLabel(teacher.status)}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function ScheduleBoard({
   availability,
   interactive = false,
   onToggleSlot,
@@ -722,9 +1208,9 @@ function ScheduleGrid({
   const selected = useMemo(() => new Set(availability), [availability]);
 
   return (
-    <div className="overflow-x-auto">
+    <ScrollArea scrollbarGutter>
       <div className="min-w-[820px]">
-        <div className="grid grid-cols-[110px_repeat(6,minmax(110px,1fr))] border-b bg-primary text-primary-foreground text-sm">
+        <div className="sticky top-0 z-10 grid grid-cols-[104px_repeat(6,minmax(110px,1fr))] border-b bg-primary text-primary-foreground text-sm">
           <div className="border-r p-3 font-medium">Hora</div>
           {days.map((day) => (
             <div
@@ -737,10 +1223,10 @@ function ScheduleGrid({
         </div>
         {hours.map((hour) => (
           <div
-            className="grid grid-cols-[110px_repeat(6,minmax(110px,1fr))] border-b last:border-b-0"
+            className="grid grid-cols-[104px_repeat(6,minmax(110px,1fr))] border-b last:border-b-0"
             key={hour}
           >
-            <div className="border-r bg-muted/60 p-2 text-center font-medium text-xs tabular-nums">
+            <div className="flex min-h-10 items-center justify-center border-r bg-muted/55 px-2 text-center font-medium text-xs tabular-nums">
               {formatHour(hour)}
             </div>
             {days.map((day) => {
@@ -750,7 +1236,7 @@ function ScheduleGrid({
               return (
                 <Cell
                   className={cn(
-                    "min-h-12 border-r p-1 text-xs transition-colors last:border-r-0",
+                    "flex min-h-10 items-center justify-center border-r text-xs transition-colors last:border-r-0",
                     isSelected
                       ? "bg-availability text-primary-foreground"
                       : "bg-card hover:bg-availability-muted",
@@ -765,23 +1251,23 @@ function ScheduleGrid({
                   }
                   type={interactive ? "button" : undefined}
                 >
-                  <span className="flex h-full items-center justify-center">
-                    {isSelected ? <Check className="size-4" /> : ""}
-                  </span>
+                  {isSelected ? <Check className="size-4" /> : null}
                 </Cell>
               );
             })}
           </div>
         ))}
       </div>
-    </div>
+    </ScrollArea>
   );
 }
 
 function RulePanel({
+  compact = false,
   profile,
   validation,
 }: {
+  compact?: boolean;
   profile: TeacherProfile;
   validation: Validation;
 }) {
@@ -807,18 +1293,18 @@ function RulePanel({
   ];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+    <Card className={cn("min-h-0 overflow-hidden", compact && "h-full")}>
+      <CardHeader className="space-y-1 px-4 py-3">
+        <CardTitle className="flex items-center gap-2 text-base">
           <Info className="size-4 text-gold" />
           Reglas activas
         </CardTitle>
         <CardDescription>{rule.text}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+      <CardContent className="flex flex-col gap-3 px-4 pb-4 text-sm">
         {rows.map((row) => (
           <div
-            className="flex items-center justify-between gap-3 text-sm"
+            className="flex items-center justify-between gap-3"
             key={row.label}
           >
             <span className="text-muted-foreground">{row.label}</span>
@@ -839,12 +1325,29 @@ function CoursesTable({
   courses: Course[];
   onRemoveCourse?: (id: string) => void;
 }) {
+  if (!courses.length) {
+    return (
+      <Empty className="h-full py-8">
+        <EmptyMedia variant="icon">
+          <BookOpen />
+        </EmptyMedia>
+        <EmptyHeader>
+          <EmptyTitle>Sin cursos</EmptyTitle>
+          <EmptyDescription>
+            Agrega un curso para habilitar la validación.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent />
+      </Empty>
+    );
+  }
+
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <ScrollArea scrollbarGutter>
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow>
-            <TableHead className="w-16">N°</TableHead>
+            <TableHead className="w-14">N°</TableHead>
             <TableHead>Curso</TableHead>
             <TableHead>Escuela Profesional</TableHead>
             {onRemoveCourse ? <TableHead className="w-14" /> : null}
@@ -868,15 +1371,17 @@ function CoursesTable({
               {onRemoveCourse ? (
                 <TableCell>
                   <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onRemoveCourse(course.id)}
-                      >
-                        <Trash2 data-icon="inline-start" />
-                        <span className="sr-only">Quitar curso</span>
-                      </Button>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onRemoveCourse(course.id)}
+                        />
+                      }
+                    >
+                      <Trash2 data-icon="inline-start" />
+                      <span className="sr-only">Quitar curso</span>
                     </TooltipTrigger>
                     <TooltipContent>Quitar curso</TooltipContent>
                   </Tooltip>
@@ -886,7 +1391,7 @@ function CoursesTable({
           ))}
         </TableBody>
       </Table>
-    </div>
+    </ScrollArea>
   );
 }
 
@@ -953,6 +1458,14 @@ function statusLabel(status: TeacherProfile["status"]) {
   return "Borrador";
 }
 
+function roleLabel(role: AppRole) {
+  return role === "direccion" ? "Dirección" : "Docente";
+}
+
+function isRole(value: string): value is AppRole {
+  return value === "docente" || value === "direccion";
+}
+
 async function exportXlsx(profile: TeacherProfile) {
   const XLSX = await import("xlsx");
   const rows = buildExportRows(profile);
@@ -1013,9 +1526,9 @@ function buildExportRows(profile: TeacherProfile) {
 
 export function SignedOutShell() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-      <section className="grid w-full max-w-5xl gap-6 md:grid-cols-[1fr_420px]">
-        <div className="flex flex-col justify-between rounded-lg border bg-card p-6 shadow-sm">
+    <main className="flex h-screen items-center justify-center overflow-hidden bg-background p-4 text-foreground md:p-6">
+      <section className="grid h-full max-h-[720px] w-full max-w-5xl gap-4 md:grid-cols-[1fr_400px]">
+        <div className="flex min-h-0 flex-col justify-between rounded-lg border bg-card p-6 shadow-sm">
           <div className="flex items-center gap-3">
             <Image
               src="/escudo-unmsm.png"
@@ -1034,28 +1547,26 @@ export function SignedOutShell() {
               </h1>
             </div>
           </div>
-          <div className="mt-16 flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
             <p className="max-w-xl text-muted-foreground">
-              Plataforma para que docentes registren disponibilidad, cursos y
-              envíen su horario 2026.2 a dirección académica.
+              Plataforma para docentes, dirección académica y administrativos.
+              Registro, validación y exportación en una sola pantalla.
             </p>
             <div className="grid gap-3 sm:grid-cols-3">
-              {[
-                "Correo institucional",
-                "Reglas por contrato",
-                "Export PDF/XLSX",
-              ].map((item) => (
-                <div
-                  className="rounded-md border bg-background p-3 text-sm"
-                  key={item}
-                >
-                  {item}
-                </div>
-              ))}
+              {["Clerk roles", "Reglas por contrato", "PDF/XLSX"].map(
+                (item) => (
+                  <div
+                    className="rounded-lg border bg-background p-3 text-sm"
+                    key={item}
+                  >
+                    {item}
+                  </div>
+                ),
+              )}
             </div>
           </div>
         </div>
-        <Card>
+        <Card className="self-center">
           <CardHeader>
             <CardTitle>Ingreso</CardTitle>
             <CardDescription>
@@ -1070,9 +1581,12 @@ export function SignedOutShell() {
                   Iniciar sesión
                 </Button>
               </SignInButton>
-              <Button asChild variant="outline" className="w-full">
-                <a href="/demo">Probar demo</a>
-              </Button>
+              <a
+                className={cn(buttonVariants({ variant: "outline" }), "w-full")}
+                href="/demo"
+              >
+                Probar demo
+              </a>
             </div>
           </CardContent>
         </Card>
