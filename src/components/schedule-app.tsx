@@ -542,16 +542,17 @@ function AppSidebar({
 }) {
   return (
     <>
-      <SidebarHeader className="border-sidebar-border border-b p-3">
-        <div className="flex items-center gap-3 rounded-lg px-1 py-1">
+      <SidebarHeader className="h-14 border-sidebar-border border-b p-2 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0">
+        <div className="flex h-10 w-full items-center gap-3 rounded-lg px-1 group-data-[collapsible=icon]:size-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border group-data-[collapsible=icon]:border-sidebar-border group-data-[collapsible=icon]:bg-sidebar-accent group-data-[collapsible=icon]:px-0">
           <Image
             src="/escudo-unmsm.png"
             alt="Escudo UNMSM"
             width={40}
             height={40}
-            className="rounded-md bg-vellum p-1"
+            className="rounded-md bg-vellum p-1 group-data-[collapsible=icon]:hidden"
             priority
           />
+          <GraduationCap className="hidden size-4 text-gold group-data-[collapsible=icon]:block" />
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
             <p className="text-gold text-[11px] font-semibold uppercase tracking-[0.18em]">
               UNMSM
@@ -563,7 +564,7 @@ function AppSidebar({
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel>Sesión</SidebarGroupLabel>
           <SidebarGroupContent className="space-y-2 px-2 group-data-[collapsible=icon]:hidden">
             <p className="truncate font-medium text-sidebar-foreground">
@@ -576,12 +577,13 @@ function AppSidebar({
             </p>
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarSeparator />
-        <SidebarGroup>
+        <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />
+        <SidebarGroup className="group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:py-3">
           <SidebarGroupLabel>Trabajo</SidebarGroupLabel>
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
+                className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                 isActive={selectedView === "docente"}
                 onClick={() => onNavigate("docente")}
                 tooltip="Docente"
@@ -593,6 +595,7 @@ function AppSidebar({
             <SidebarMenuItem>
               <SidebarMenuButton
                 aria-disabled={!canUseDirection}
+                className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                 disabled={!canUseDirection}
                 isActive={selectedView === "direccion"}
                 onClick={() => onNavigate("direccion")}
@@ -609,8 +612,8 @@ function AppSidebar({
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
-        <SidebarSeparator />
-        <SidebarGroup>
+        <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel>Progreso</SidebarGroupLabel>
           <SidebarGroupContent className="space-y-3 px-2 group-data-[collapsible=icon]:hidden">
             <div className="flex items-center justify-between text-sm">
