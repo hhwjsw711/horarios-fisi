@@ -266,6 +266,15 @@ export function ScheduleApp({
   const pendingCount = data.teachers.filter(
     (teacher) => teacher.status !== "enviado",
   ).length;
+  const reviewCompletion = data.teachers.length
+    ? Math.round(
+        ((data.teachers.length - pendingCount) / data.teachers.length) * 100,
+      )
+    : 0;
+  const sidebarCompletion =
+    canUseDirection && view !== "docente" ? reviewCompletion : completion;
+  const sidebarCompletionLabel =
+    canUseDirection && view !== "docente" ? "Revisión" : "Docente";
 
   const handleToggleSlot = (day: DayKey, hour: number) => {
     const key = slotKey(day, hour);
@@ -398,7 +407,8 @@ export function ScheduleApp({
     <ScheduleFrame
       canSignOut={showClerkControls}
       canUseDirection={canUseDirection}
-      completion={completion}
+      completion={sidebarCompletion}
+      completionLabel={sidebarCompletionLabel}
       currentRole={data.onboarding.role}
       pendingCount={pendingCount}
       selectedView={view}
@@ -513,6 +523,7 @@ function ScheduleFrame({
   canUseDirection,
   children,
   completion,
+  completionLabel,
   currentRole,
   pendingCount,
   selectedView,
@@ -523,6 +534,7 @@ function ScheduleFrame({
   canUseDirection: boolean;
   children: React.ReactNode;
   completion: number;
+  completionLabel: string;
   currentRole: AppRole;
   pendingCount: number;
   selectedView: ViewKey;
@@ -537,6 +549,7 @@ function ScheduleFrame({
             canSignOut={canSignOut}
             canUseDirection={canUseDirection}
             completion={completion}
+            completionLabel={completionLabel}
             currentRole={currentRole}
             pendingCount={pendingCount}
             selectedView={selectedView}
@@ -587,6 +600,7 @@ function AppSidebar({
   canSignOut,
   canUseDirection,
   completion,
+  completionLabel,
   currentRole,
   pendingCount,
   selectedView,
@@ -595,6 +609,7 @@ function AppSidebar({
   canSignOut: boolean;
   canUseDirection: boolean;
   completion: number;
+  completionLabel: string;
   currentRole: AppRole;
   pendingCount: number;
   selectedView: ViewKey;
@@ -696,7 +711,9 @@ function AppSidebar({
           <SidebarGroupLabel>Progreso</SidebarGroupLabel>
           <SidebarGroupContent className="space-y-3 px-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-sidebar-foreground/70">Docente</span>
+              <span className="text-sidebar-foreground/70">
+                {completionLabel}
+              </span>
               <span className="text-gold font-medium">{completion}%</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-sidebar-accent">

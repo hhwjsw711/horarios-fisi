@@ -240,8 +240,7 @@ export async function getSchedulePayload(
   const profile = await ensureTeacherProfile(profileId, identity);
   const catalog = await readCourseCatalog();
   const schoolOptions = await readSchools();
-  const teachers =
-    user.role === "direccion" ? await readTeachers(profile.id) : [profile];
+  const teachers = user.role === "direccion" ? await readTeachers() : [profile];
   return {
     profile,
     teachers,
@@ -724,7 +723,12 @@ async function ensureUser(identity: ScheduleIdentity) {
       on conflict (clerk_user_id) do update set
         email = excluded.email,
         name = excluded.name,
-        updated_at = now()
+        updated_at = case
+          when app_users.email is distinct from excluded.email
+            or app_users.name is distinct from excluded.name
+          then now()
+          else app_users.updated_at
+        end
       returning clerk_user_id, email, name, role, school, code
     `,
     [identity.clerkUserId, identity.email, identity.name],
@@ -747,27 +751,15 @@ async function ensureTeacherProfile(
       on conflict (id) do update set
         name = excluded.name,
         email = excluded.email,
-        updated_at = now()
+        updated_at = case
+          when teacher_profiles.name is distinct from excluded.name
+            or teacher_profiles.email is distinct from excluded.email
+          then now()
+          else teacher_profiles.updated_at
+        end
     `,
     [profileId, identity.name, identity.email],
   );
-  const availabilityCount = (await sql.query(
-    "select count(*)::int as count from teacher_availability where teacher_id = $1",
-    [profileId],
-  )) as { count: number }[];
-  if (Number(availabilityCount[0]?.count ?? 0) === 0) {
-    await replaceAvailability(profileId, seedTeachers[0].availability);
-  }
-  const courseCount = (await sql.query(
-    "select count(*)::int as count from teacher_courses where teacher_id = $1",
-    [profileId],
-  )) as { count: number }[];
-  if (Number(courseCount[0]?.count ?? 0) === 0) {
-    await replaceCourses(
-      profileId,
-      seedTeachers[0].courses.map((course) => course.id),
-    );
-  }
   return readTeacher(profileId);
 }
 
@@ -781,15 +773,22 @@ async function getProfileId(identity: ScheduleIdentity) {
   return identity.clerkUserId;
 }
 
-async function readTeachers(currentId: string) {
+async function readTeachers() {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      select id, name, email, contract, status, review_note, submitted_at, updated_at::text
-      from teacher_profiles
-      order by case when id = $1 then 0 else 1 end, name asc
+      select tp.id, tp.name, tp.email, tp.contract, tp.status, tp.review_note, tp.submitted_at, tp.updated_at::text
+      from teacher_profiles tp
+      left join app_users au on au.clerk_user_id = tp.clerk_user_id
+      where coalesce(au.role, 'docente') = 'docente'
+      order by
+        case tp.status
+          when 'observado' then 0
+          when 'borrador' then 1
+          else 2
+        end,
+        tp.name asc
     `,
-    [currentId],
   )) as TeacherRow[];
   return Promise.all(rows.map((row) => inflateTeacher(row)));
 }
