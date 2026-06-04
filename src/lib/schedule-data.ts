@@ -55,6 +55,8 @@ export const contractRules: Record<
     label: string;
     short: string;
     requiredHours: number;
+    requiredDailyHours: number;
+    requiredDailyBlockCount: number;
     requiredBlockDays: number;
     maxCourses: number;
     text: string;
@@ -64,6 +66,8 @@ export const contractRules: Record<
     label: "Tiempo completo",
     short: "TC",
     requiredHours: 40,
+    requiredDailyHours: 8,
+    requiredDailyBlockCount: 2,
     requiredBlockDays: 5,
     maxCourses: 3,
     text: "8 horas diarias en bloques de 4 horas y hasta 3 cursos aparte de Tesis.",
@@ -72,6 +76,8 @@ export const contractRules: Record<
     label: "Tiempo parcial 20 h",
     short: "TP 20",
     requiredHours: 20,
+    requiredDailyHours: 4,
+    requiredDailyBlockCount: 1,
     requiredBlockDays: 5,
     maxCourses: 2,
     text: "4 horas diarias en bloques de 4 horas y hasta 2 cursos aparte de Tesis.",
@@ -80,6 +86,8 @@ export const contractRules: Record<
     label: "Tiempo parcial 10 h",
     short: "TP 10",
     requiredHours: 12,
+    requiredDailyHours: 4,
+    requiredDailyBlockCount: 1,
     requiredBlockDays: 3,
     maxCourses: 1,
     text: "4 horas en 3 días de la semana y 1 curso aparte de Tesis.",

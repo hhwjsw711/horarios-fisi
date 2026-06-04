@@ -618,7 +618,7 @@ export function ScheduleApp({
       return;
     }
     if (!validation.complete) {
-      toast.error("Aún faltan reglas por completar.");
+      toast.error(scheduleCorrectionMessage(profile, validation));
       return;
     }
     const payload = await request({ action: "submit" });
@@ -1715,7 +1715,7 @@ function DocenteView({
               </Select>
               <ToolbarSeparator orientation="vertical" />
               <ToolbarButton
-                disabled={saving || periodClosed}
+                disabled={saving || periodClosed || !validation.complete}
                 onClick={handleSubmit}
                 render={<Button />}
               >
@@ -1789,7 +1789,7 @@ function DocenteRuleStrip({
     },
     {
       complete: validation.blockDays >= rule.requiredBlockDays,
-      label: "Bloques",
+      label: "Días válidos",
       value: `${validation.blockDays}/${rule.requiredBlockDays}`,
     },
     {
@@ -1809,6 +1809,11 @@ function DocenteRuleStrip({
           <span>Reglas activas</span>
         </div>
         <p className="mt-1 text-muted-foreground">{rule.text}</p>
+        {!validation.complete ? (
+          <p className="mt-1 text-warning text-xs">
+            {scheduleCorrectionMessage(profile, validation)}
+          </p>
+        ) : null}
       </div>
       <div className="grid min-w-0 grid-cols-3 gap-2">
         {items.map((item) => (
@@ -3008,7 +3013,7 @@ function TeacherStatusPanel({
             value={`${validation.selectedHours}/${rule.requiredHours}`}
           />
           <StatusMetric
-            label="Bloques"
+            label="Días válidos"
             value={`${validation.blockDays}/${rule.requiredBlockDays}`}
           />
           <StatusMetric
@@ -3026,7 +3031,7 @@ function TeacherStatusPanel({
           </span>
           <Button
             size="sm"
-            disabled={periodClosed}
+            disabled={periodClosed || !validation.complete}
             loading={saving}
             onClick={onSubmit}
           >
@@ -4015,7 +4020,7 @@ function RulePanel({
       value: `${validation.selectedHours}/${rule.requiredHours}`,
     },
     {
-      label: "Bloques de 4 h",
+      label: "Días válidos",
       complete: validation.blockDays >= rule.requiredBlockDays,
       value: `${validation.blockDays}/${rule.requiredBlockDays}`,
     },
@@ -4036,6 +4041,11 @@ function RulePanel({
           Reglas activas
         </CardTitle>
         <CardDescription>{rule.text}</CardDescription>
+        {!validation.complete ? (
+          <CardDescription className="text-warning">
+            {scheduleCorrectionMessage(profile, validation)}
+          </CardDescription>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-2 px-3 pb-2 pt-0 text-sm">
         {rows.map((row) => (
@@ -4139,6 +4149,31 @@ function CourseCardsList({
 
 function completionFor(profile: TeacherProfile, validation: Validation) {
   return completionForRules(profile, validation);
+}
+
+function scheduleCorrectionMessage(
+  profile: Pick<TeacherProfile, "contract">,
+  validation: Validation,
+) {
+  const rule = contractRules[profile.contract];
+  if (validation.blockDays < rule.requiredBlockDays) {
+    const missing = rule.requiredBlockDays - validation.blockDays;
+    const blockText =
+      rule.requiredDailyBlockCount === 1
+        ? "1 bloque de 4 h"
+        : `${rule.requiredDailyBlockCount} bloques de 4 h`;
+    return `Faltan ${missing} ${missing === 1 ? "día válido" : "días válidos"} con ${rule.requiredDailyHours} h en ${blockText}.`;
+  }
+  if (validation.selectedHours < rule.requiredHours) {
+    return `Faltan ${rule.requiredHours - validation.selectedHours} horas por marcar.`;
+  }
+  if (validation.countedCourses <= 0) {
+    return "Falta seleccionar al menos un curso no Tesis.";
+  }
+  if (validation.countedCourses > rule.maxCourses) {
+    return `Reduce cursos no Tesis a ${rule.maxCourses}.`;
+  }
+  return "Aún faltan reglas por completar.";
 }
 
 function countTeachersByStatus(

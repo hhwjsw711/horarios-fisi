@@ -10,6 +10,7 @@ export type ScheduleValidation = {
   selectedHours: number;
   countedCourses: number;
   blockDays: number;
+  missingDailyBlockDays: number;
   complete: boolean;
 };
 
@@ -36,15 +37,19 @@ export function validateTeacherRules(
     }
   }
   const blockDays = Array.from(byDay.values()).filter(
-    (dayHours) => maxConsecutive(dayHours) >= 4,
+    (dayHours) =>
+      new Set(dayHours).size >= rule.requiredDailyHours &&
+      countFourHourBlocks(dayHours) >= rule.requiredDailyBlockCount,
   ).length;
   const countedCourses = profile.courses.filter(
     (course) => !course.isThesis,
   ).length;
+  const missingDailyBlockDays = Math.max(0, rule.requiredBlockDays - blockDays);
   return {
     selectedHours: profile.availability.length,
     countedCourses,
     blockDays,
+    missingDailyBlockDays,
     complete:
       profile.availability.length >= rule.requiredHours &&
       blockDays >= rule.requiredBlockDays &&
@@ -97,15 +102,20 @@ export function courseAssignmentState(
   };
 }
 
-function maxConsecutive(values: number[]) {
-  const sorted = [...values].sort((a, b) => a - b);
-  let max = 0;
-  let current = 0;
+function countFourHourBlocks(values: number[]) {
+  const sorted = Array.from(new Set(values)).sort((a, b) => a - b);
+  let blocks = 0;
+  let run = 0;
   let previous = Number.NaN;
   for (const value of sorted) {
-    current = value === previous + 1 ? current + 1 : 1;
-    max = Math.max(max, current);
+    if (value === previous + 1) {
+      run += 1;
+    } else {
+      blocks += Math.floor(run / 4);
+      run = 1;
+    }
     previous = value;
   }
-  return max;
+  blocks += Math.floor(run / 4);
+  return blocks;
 }

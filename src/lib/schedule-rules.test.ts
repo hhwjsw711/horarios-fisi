@@ -66,6 +66,27 @@ describe("schedule rules", () => {
     expect(validation.complete).toBe(false);
   });
 
+  test("rejects full-time schedules without 8 hours on each valid day", () => {
+    const validation = validateTeacherRules(
+      profile({
+        contract: "full",
+        courses: [courseCatalog[0], courseCatalog[1], courseCatalog[2]],
+        availability: seedSlots({
+          lunes: [8, 9, 10, 11, 14, 15, 16, 17],
+          martes: [8, 9, 10, 11, 14, 15, 16, 17],
+          miercoles: [8, 9, 10, 11, 14, 15, 16, 17],
+          jueves: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+          viernes: [8, 9, 10, 11],
+        }),
+      }),
+    );
+
+    expect(validation.selectedHours).toBe(40);
+    expect(validation.blockDays).toBe(4);
+    expect(validation.missingDailyBlockDays).toBe(1);
+    expect(validation.complete).toBe(false);
+  });
+
   test("does not count thesis against course quota", () => {
     const validation = validateTeacherRules(
       profile({
