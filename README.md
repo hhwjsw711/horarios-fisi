@@ -47,6 +47,7 @@ bun run smoke https://horarios-unmsm.vercel.app
 - Vista de Dirección para revisar docentes.
 - Búsqueda y filtros administrativos por docente, correo y estado.
 - Gestión de usuarios, roles y escuelas desde Dirección.
+- Búsqueda y filtros de usuarios por rol y onboarding.
 - Aprobación de horarios y cierre/reapertura de periodo académico.
 - Observaciones administrativas con historial de eventos.
 - Auditoría institucional buscable y exportable a CSV.

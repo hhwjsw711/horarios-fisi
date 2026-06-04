@@ -156,6 +156,8 @@ type ViewKey =
 
 type Validation = ScheduleValidation;
 type TeacherStatusFilter = TeacherProfile["status"] | "all";
+type UserRoleFilter = AppRole | "all";
+type UserOnboardingFilter = "all" | "complete" | "pending";
 
 type ScheduleAction =
   | { action: "setContract"; contract: ContractKey }
@@ -1718,6 +1720,10 @@ function UsersAccessView({
   schools: string[];
   users: ScheduleUser[];
 }) {
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<UserRoleFilter>("all");
+  const [onboardingFilter, setOnboardingFilter] =
+    useState<UserOnboardingFilter>("all");
   const directionCount = users.filter(
     (user) => user.role === "direccion",
   ).length;
@@ -1725,31 +1731,92 @@ function UsersAccessView({
   const pendingOnboarding = users.filter(
     (user) => !user.onboardingComplete,
   ).length;
+  const filteredUsers = filterUsers(users, {
+    onboardingFilter,
+    query,
+    roleFilter,
+  });
+  const filtersActive =
+    query.trim().length > 0 ||
+    roleFilter !== "all" ||
+    onboardingFilter !== "all";
+  const clearFilters = () => {
+    setQuery("");
+    setRoleFilter("all");
+    setOnboardingFilter("all");
+  };
 
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_300px]">
       <Card className="min-h-0 overflow-hidden" size="sm">
-        <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
-            <CardTitle className="truncate font-serif text-xl">
-              Usuarios institucionales
-            </CardTitle>
-            <CardDescription className="truncate">
-              Roles, escuelas y estado de onboarding.
-            </CardDescription>
+        <CardHeader className="grid shrink-0 gap-2 border-b px-3 py-2 lg:grid-cols-[minmax(0,1fr)_minmax(460px,auto)] lg:items-center">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="truncate font-serif text-xl">
+                Usuarios institucionales
+              </CardTitle>
+              <CardDescription className="truncate">
+                Roles, escuelas y estado de onboarding.
+              </CardDescription>
+            </div>
+            <Badge variant="secondary">
+              {filteredUsers.length}/{users.length}
+            </Badge>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge variant="default">{directionCount} dirección</Badge>
-            <Badge variant="secondary">{teacherCount} docentes</Badge>
+          <div className="grid gap-2 md:grid-cols-[minmax(180px,1fr)_160px_160px]">
+            <Input
+              aria-label="Buscar usuario"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar nombre o correo"
+              size="sm"
+              type="search"
+              value={query}
+            />
+            <Select
+              value={roleFilter}
+              onValueChange={(value) => setRoleFilter(value as UserRoleFilter)}
+            >
+              <SelectTrigger className="w-full" size="sm">
+                <SelectValue placeholder="Rol" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Rol</SelectLabel>
+                  <SelectItem value="all">Todos los roles</SelectItem>
+                  <SelectItem value="direccion">Dirección</SelectItem>
+                  <SelectItem value="docente">Docente</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={onboardingFilter}
+              onValueChange={(value) =>
+                setOnboardingFilter(value as UserOnboardingFilter)
+              }
+            >
+              <SelectTrigger className="w-full" size="sm">
+                <SelectValue placeholder="Onboarding" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Onboarding</SelectLabel>
+                  <SelectItem value="all">Todo onboarding</SelectItem>
+                  <SelectItem value="complete">Completo</SelectItem>
+                  <SelectItem value="pending">Pendiente</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </div>
         </CardHeader>
         <CardContent className="min-h-0 flex-1 p-0">
           <UsersAccessTable
+            clearFilters={clearFilters}
             currentUserId={currentUserId}
+            filtersActive={filtersActive}
             onSetUserAccess={onSetUserAccess}
             saving={saving}
             schools={schools}
-            users={users}
+            users={filteredUsers}
           />
         </CardContent>
       </Card>
@@ -1784,13 +1851,17 @@ function UsersAccessView({
 }
 
 function UsersAccessTable({
+  clearFilters,
   currentUserId,
+  filtersActive,
   onSetUserAccess,
   saving,
   schools,
   users,
 }: {
+  clearFilters: () => void;
   currentUserId: string;
+  filtersActive: boolean;
   onSetUserAccess: (
     userId: string,
     role: AppRole,
@@ -1807,11 +1878,22 @@ function UsersAccessTable({
           <UserCog />
         </EmptyMedia>
         <EmptyHeader>
-          <EmptyTitle>Sin usuarios</EmptyTitle>
+          <EmptyTitle>
+            {filtersActive ? "Sin coincidencias" : "Sin usuarios"}
+          </EmptyTitle>
           <EmptyDescription>
-            Los usuarios aparecerán después de iniciar sesión.
+            {filtersActive
+              ? "Ajusta búsqueda, rol u onboarding para ver más usuarios."
+              : "Los usuarios aparecerán después de iniciar sesión."}
           </EmptyDescription>
         </EmptyHeader>
+        {filtersActive ? (
+          <EmptyContent>
+            <Button onClick={clearFilters} size="sm" variant="outline">
+              Limpiar filtros
+            </Button>
+          </EmptyContent>
+        ) : null}
       </Empty>
     );
   }
@@ -2960,6 +3042,46 @@ function filterTeachers(
       statusLabel(teacher.status),
       contractRules[teacher.contract].label,
       contractRules[teacher.contract].short,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedQuery);
+  });
+}
+
+function filterUsers(
+  users: ScheduleUser[],
+  {
+    onboardingFilter,
+    query,
+    roleFilter,
+  }: {
+    onboardingFilter: UserOnboardingFilter;
+    query: string;
+    roleFilter: UserRoleFilter;
+  },
+) {
+  const normalizedQuery = query.trim().toLowerCase();
+  return users.filter((user) => {
+    if (roleFilter !== "all" && user.role !== roleFilter) {
+      return false;
+    }
+    if (onboardingFilter === "complete" && user.onboardingComplete === false) {
+      return false;
+    }
+    if (onboardingFilter === "pending" && user.onboardingComplete) {
+      return false;
+    }
+    if (!normalizedQuery) {
+      return true;
+    }
+    return [
+      user.name,
+      user.email,
+      roleLabel(user.role),
+      user.school,
+      user.teacherStatus ? statusLabel(user.teacherStatus) : "No aplica",
+      user.onboardingComplete ? "Completo" : "Pendiente",
     ]
       .join(" ")
       .toLowerCase()
