@@ -2554,6 +2554,7 @@ function DirectorView({
             counts={reviewCounts}
             totalTeacherCount={totalTeacherCount}
           />
+          <DirectorOperationsSnapshot events={events} teachers={teachers} />
           <Field className="flex-row items-center justify-between gap-2 rounded-md bg-muted/25 px-2 py-0.5">
             <div>
               <FieldLabel className="text-xs">Solo pendientes</FieldLabel>
@@ -2783,6 +2784,70 @@ function TeacherQueueMetrics({
                 : 0}
               %
             </Badge>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DirectorOperationsSnapshot({
+  events,
+  teachers,
+}: {
+  events: ScheduleEvent[];
+  teachers: TeacherProfile[];
+}) {
+  const totalTeachers = teachers.length;
+  const teachersWithCourses = teachers.filter(
+    (teacher) => teacher.courses.length > 0,
+  ).length;
+  const teachersWithAvailability = teachers.filter(
+    (teacher) => teacher.availability.length > 0,
+  ).length;
+  const assignedCourses = teachers.reduce(
+    (total, teacher) => total + teacher.courses.length,
+    0,
+  );
+  const rows = [
+    {
+      label: "Carga",
+      value: `${teachersWithCourses}/${totalTeachers}`,
+      detail: `${assignedCourses} cursos`,
+      warning: assignedCourses === 0,
+    },
+    {
+      label: "Horarios",
+      value: `${teachersWithAvailability}/${totalTeachers}`,
+      detail: "recibidos",
+      warning: teachersWithAvailability === 0,
+    },
+    {
+      label: "Eventos",
+      value: String(events.length),
+      detail: "auditados",
+      warning: events.length === 0,
+    },
+  ];
+
+  return (
+    <div className="hidden grid-cols-3 gap-1 xl:grid">
+      {rows.map((row) => (
+        <div
+          className={cn(
+            "rounded-md border px-1.5 py-1",
+            row.warning ? "border-warning/45 bg-warning/10" : "bg-muted/30",
+          )}
+          key={row.label}
+        >
+          <div className="truncate text-[10px] text-muted-foreground">
+            {row.label}
+          </div>
+          <div className="truncate font-semibold text-xs tabular-nums">
+            {row.value}
+          </div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {row.detail}
           </div>
         </div>
       ))}
