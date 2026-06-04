@@ -27,7 +27,12 @@ export async function PATCH(request: NextRequest) {
   if (!identity) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
   try {
     if (body.action === "completeOnboarding") {
       if (

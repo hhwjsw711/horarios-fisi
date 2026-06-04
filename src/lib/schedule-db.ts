@@ -4,6 +4,9 @@ import {
   contractRules,
   courseCatalog,
   type DayKey,
+  days,
+  hours,
+  schools,
   seedTeachers,
   slotKey,
   type TeacherProfile,
@@ -71,6 +74,8 @@ type AvailabilityRow = {
   day_key: DayKey;
   hour: number;
 };
+
+let seedReady: Promise<void> | undefined;
 
 function getSql() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -188,7 +193,8 @@ export async function getSchedulePayload(
     : await ensureUser(identity);
   const profileId = identity.preview ? "me" : identity.clerkUserId;
   const profile = await ensureTeacherProfile(profileId, identity);
-  const teachers = await readTeachers(profile.id);
+  const teachers =
+    user.role === "direccion" ? await readTeachers(profile.id) : [profile];
   return {
     profile,
     teachers,
@@ -207,6 +213,7 @@ export async function completeOnboarding(
   identity: ScheduleIdentity,
   onboarding: Omit<Onboarding, "complete">,
 ) {
+  const validated = validateOnboarding(identity, onboarding);
   const sql = getSql();
   await ensureUser(identity);
   await sql.query(
@@ -215,7 +222,7 @@ export async function completeOnboarding(
       set role = $2, school = $3, code = $4, updated_at = now()
       where clerk_user_id = $1
     `,
-    [identity.clerkUserId, onboarding.role, onboarding.school, onboarding.code],
+    [identity.clerkUserId, validated.role, validated.school, validated.code],
   );
   return getSchedulePayload(identity);
 }
@@ -242,7 +249,7 @@ export async function setAvailability(
   availability: string[],
 ) {
   const profileId = await getProfileId(identity);
-  await replaceAvailability(profileId, availability);
+  await replaceAvailability(profileId, normalizeAvailability(availability));
   const sql = getSql();
   await sql.query(
     "update teacher_profiles set status = 'borrador', updated_at = now() where id = $1",
@@ -254,6 +261,22 @@ export async function setAvailability(
 export async function addCourse(identity: ScheduleIdentity, courseId: string) {
   const sql = getSql();
   const profileId = await getProfileId(identity);
+  const course = courseCatalog.find((item) => item.id === courseId);
+  if (!course) {
+    throw new ScheduleError("Curso no válido.");
+  }
+  const profile = await readTeacher(profileId);
+  const alreadySelected = profile.courses.some((item) => item.id === courseId);
+  const countedCourses = profile.courses.filter(
+    (item) => !item.isThesis,
+  ).length;
+  if (
+    !alreadySelected &&
+    !course.isThesis &&
+    countedCourses >= contractRules[profile.contract].maxCourses
+  ) {
+    throw new ScheduleError("Ya alcanzaste el máximo de cursos permitido.");
+  }
   await sql.query(
     `
       insert into teacher_courses (teacher_id, course_id, position)
@@ -349,6 +372,14 @@ function maxConsecutive(values: number[]) {
 }
 
 async function ensureSeeded() {
+  seedReady ??= prepareScheduleData().catch((error) => {
+    seedReady = undefined;
+    throw error;
+  });
+  await seedReady;
+}
+
+async function prepareScheduleData() {
   const sql = getSql();
   await ensureScheduleSchema();
   const rows = (await sql.query(
@@ -359,6 +390,63 @@ async function ensureSeeded() {
   if (Number(rows[0]?.count ?? 0) === 0) {
     await seedScheduleData();
   }
+}
+
+function validateOnboarding(
+  identity: ScheduleIdentity,
+  onboarding: Omit<Onboarding, "complete">,
+) {
+  if (!schools.includes(onboarding.school)) {
+    throw new ScheduleError("Escuela no válida.");
+  }
+  if (onboarding.code.trim().length < 4) {
+    throw new ScheduleError("Código institucional no válido.");
+  }
+  if (onboarding.role === "docente") {
+    return {
+      role: onboarding.role,
+      school: onboarding.school,
+      code: onboarding.code.trim(),
+    };
+  }
+  const directorCode = process.env.DIRECTION_ACCESS_CODE?.trim();
+  const emailIsAllowed = getDirectionEmailAllowlist().has(
+    identity.email.toLowerCase(),
+  );
+  const codeIsValid = Boolean(
+    directorCode && onboarding.code.trim() === directorCode,
+  );
+  if (!emailIsAllowed && !codeIsValid) {
+    throw new ScheduleError("Código de Dirección inválido.", 403);
+  }
+  return {
+    role: onboarding.role,
+    school: onboarding.school,
+    code: emailIsAllowed ? onboarding.code.trim() : "DIRECCION",
+  };
+}
+
+function getDirectionEmailAllowlist() {
+  return new Set(
+    (process.env.DIRECTION_EMAIL_ALLOWLIST ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function normalizeAvailability(availability: string[]) {
+  const allowedDays = new Set(days.map((day) => day.key));
+  const allowedHours = new Set(hours);
+  const normalized = new Set<string>();
+  for (const key of availability) {
+    const [day, rawHour] = key.split("-");
+    const hour = Number(rawHour);
+    if (allowedDays.has(day as DayKey) && allowedHours.has(hour)) {
+      normalized.add(slotKey(day as DayKey, hour));
+    }
+  }
+  return Array.from(normalized).sort();
 }
 
 function previewUser(identity: ScheduleIdentity): AppUserRow {

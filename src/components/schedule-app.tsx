@@ -147,6 +147,19 @@ type ScheduleAction =
   | { action: "removeCourse"; courseId: string }
   | { action: "submit" };
 
+type ApiError = {
+  error?: string;
+};
+
+async function readApiError(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as ApiError;
+    return payload.error || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function ScheduleApp({
   preview = false,
   view,
@@ -199,7 +212,9 @@ export function ScheduleApp({
     });
     setSaving(false);
     if (!response.ok) {
-      toast.error("No se pudo guardar el cambio.");
+      toast.error(
+        await readApiError(response, "No se pudo guardar el cambio."),
+      );
       return null;
     }
     const payload = (await response.json()) as SchedulePayload;
@@ -230,6 +245,9 @@ export function ScheduleApp({
   const completion = completionFor(profile, validation);
   const canUseDirection = data.canUseDirection;
   const showClerkControls = process.env.NODE_ENV === "production" && !preview;
+  const pendingCount = data.teachers.filter(
+    (teacher) => teacher.status !== "enviado",
+  ).length;
 
   const handleToggleSlot = (day: DayKey, hour: number) => {
     const key = slotKey(day, hour);
@@ -284,8 +302,10 @@ export function ScheduleApp({
       toast.error("Aún faltan reglas por completar.");
       return;
     }
-    await request({ action: "submit" });
-    toast.success("Horario enviado para revisión.");
+    const payload = await request({ action: "submit" });
+    if (payload) {
+      toast.success("Horario enviado para revisión.");
+    }
   };
 
   const handleExportXlsx = async () => {
@@ -304,6 +324,7 @@ export function ScheduleApp({
       canUseDirection={canUseDirection}
       completion={completion}
       currentRole={data.onboarding.role}
+      pendingCount={pendingCount}
       selectedView={view}
       status={profile.status}
       userName={data.userName}
@@ -372,7 +393,9 @@ export function OnboardingRouteApp({ preview = false }: { preview?: boolean }) {
       }),
     });
     if (!response.ok) {
-      toast.error("No se pudo guardar el perfil.");
+      toast.error(
+        await readApiError(response, "No se pudo guardar el perfil."),
+      );
       return;
     }
     router.push(next.role === "direccion" ? "/direccion" : "/docente");
@@ -401,6 +424,7 @@ function ScheduleFrame({
   children,
   completion,
   currentRole,
+  pendingCount,
   selectedView,
   status,
   userName,
@@ -410,6 +434,7 @@ function ScheduleFrame({
   children: React.ReactNode;
   completion: number;
   currentRole: AppRole;
+  pendingCount: number;
   selectedView: ViewKey;
   status: TeacherProfile["status"];
   userName: string;
@@ -423,7 +448,7 @@ function ScheduleFrame({
             canUseDirection={canUseDirection}
             completion={completion}
             currentRole={currentRole}
-            pendingCount={2}
+            pendingCount={pendingCount}
             selectedView={selectedView}
             userName={userName}
           />
@@ -655,6 +680,14 @@ function OnboardingView({
   const [code, setCode] = useState("");
   const [saving, setSaving] = useState(false);
   const codeIsValid = code.trim().length >= 4;
+  const codeLabel =
+    role === "direccion" ? "Código de acceso Dirección" : "Código o legajo";
+  const codePlaceholder =
+    role === "direccion" ? "Código autorizado" : "Ej. 082026";
+  const codeDescription =
+    role === "direccion"
+      ? "Valida el acceso administrativo sin guardar el secreto."
+      : "Se guarda en Neon y queda asociado a tu cuenta Clerk.";
 
   const handleSubmit = async () => {
     if (!codeIsValid) {
@@ -735,15 +768,14 @@ function OnboardingView({
                 </Select>
               </Field>
               <Field>
-                <FieldLabel>Código o legajo</FieldLabel>
+                <FieldLabel>{codeLabel}</FieldLabel>
                 <Input
                   value={code}
                   onChange={(event) => setCode(event.target.value)}
-                  placeholder="Ej. 082026"
+                  placeholder={codePlaceholder}
+                  type={role === "direccion" ? "password" : "text"}
                 />
-                <FieldDescription>
-                  Se guarda en Neon y queda asociado a tu cuenta Clerk.
-                </FieldDescription>
+                <FieldDescription>{codeDescription}</FieldDescription>
               </Field>
               <Alert variant="info">
                 <Info />
