@@ -9,6 +9,11 @@ if (!baseUrl) {
 
 const checks = [
   {
+    path: "/api/health",
+    expectedStatus: 200,
+    expectedOkBody: true,
+  },
+  {
     path: "/sign-in",
     expectedStatus: 200,
   },
@@ -45,13 +50,18 @@ for (const check of checks) {
     redirect: "manual",
   });
   const location = response.headers.get("location");
+  const body = check.expectedOkBody
+    ? await response.json().catch(() => null)
+    : null;
   const ok =
     response.status === check.expectedStatus &&
-    (!check.expectedLocation || location === check.expectedLocation);
+    (!check.expectedLocation || location === check.expectedLocation) &&
+    (!check.expectedOkBody || body?.ok === true);
   results.push({
     path: check.path,
     status: response.status,
     location,
+    bodyOk: check.expectedOkBody ? body?.ok === true : undefined,
     ok,
   });
 }

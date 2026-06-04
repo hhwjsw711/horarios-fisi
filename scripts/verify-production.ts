@@ -201,6 +201,7 @@ function unquoteEnvValue(value: string) {
 
 async function verifyPublicRoutes(base: string): Promise<Check[]> {
   const routes = [
+    { path: "/api/health", status: 200, okBody: true },
     { path: "/sign-in", status: 200 },
     { path: "/api/schedule", status: 401 },
     { path: "/direccion", status: 307, location: "/sign-in" },
@@ -214,11 +215,13 @@ async function verifyPublicRoutes(base: string): Promise<Check[]> {
       redirect: "manual",
     });
     const location = response.headers.get("location");
+    const body = route.okBody ? await response.json().catch(() => null) : null;
     checks.push({
       name: `http.${route.path}`,
       ok:
         response.status === route.status &&
-        (!route.location || location === route.location),
+        (!route.location || location === route.location) &&
+        (!route.okBody || body?.ok === true),
       detail: `${response.status}${location ? ` ${location}` : ""}`,
     });
   }
