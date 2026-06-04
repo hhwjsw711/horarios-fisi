@@ -6,6 +6,7 @@ import {
   addCourse,
   completeOnboarding,
   getSchedulePayload,
+  observeSchedule,
   removeCourse,
   ScheduleError,
   type ScheduleIdentity,
@@ -78,6 +79,14 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: "Invalid course" }, { status: 400 });
       }
       return NextResponse.json(await removeCourse(identity, body.courseId));
+    }
+    if (body.action === "observe") {
+      if (typeof body.teacherId !== "string" || typeof body.note !== "string") {
+        return NextResponse.json({ error: "Invalid review" }, { status: 400 });
+      }
+      return NextResponse.json(
+        await observeSchedule(identity, body.teacherId, body.note),
+      );
     }
     if (body.action === "submit") {
       return NextResponse.json(await submitSchedule(identity));

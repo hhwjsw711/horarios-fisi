@@ -60,7 +60,9 @@ type TeacherRow = {
   email: string;
   contract: ContractKey;
   status: TeacherProfile["status"];
+  review_note: string;
   submitted_at: string | null;
+  updated_at: string | null;
 };
 
 type CourseRow = {
@@ -107,6 +109,7 @@ export async function ensureScheduleSchema() {
       email text not null,
       contract text not null check (contract in ('full', 'partial20', 'partial10')),
       status text not null default 'borrador' check (status in ('enviado', 'borrador', 'observado')),
+      review_note text not null default '',
       submitted_at text,
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
@@ -136,9 +139,22 @@ export async function ensureScheduleSchema() {
       primary key (teacher_id, course_id)
     )
   `);
+  await sql.query(`
+    create table if not exists schedule_events (
+      id bigserial primary key,
+      teacher_id text not null,
+      actor_user_id text not null,
+      event_type text not null,
+      metadata jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now()
+    )
+  `);
+  await sql.query(
+    "alter table teacher_profiles add column if not exists review_note text not null default ''",
+  );
 }
 
-export async function seedScheduleData() {
+export async function seedCourseCatalog() {
   const sql = getSql();
   await ensureScheduleSchema();
   for (const course of courseCatalog) {
@@ -154,16 +170,29 @@ export async function seedScheduleData() {
       [course.id, course.name, course.school, Boolean(course.isThesis)],
     );
   }
+}
+
+export async function seedScheduleData({
+  includeDemoTeachers = false,
+}: {
+  includeDemoTeachers?: boolean;
+} = {}) {
+  const sql = getSql();
+  await seedCourseCatalog();
+  if (!includeDemoTeachers) {
+    return;
+  }
   for (const teacher of seedTeachers) {
     await sql.query(
       `
-        insert into teacher_profiles (id, name, email, contract, status, submitted_at)
-        values ($1, $2, $3, $4, $5, $6)
+        insert into teacher_profiles (id, name, email, contract, status, review_note, submitted_at)
+        values ($1, $2, $3, $4, $5, $6, $7)
         on conflict (id) do update set
           name = excluded.name,
           email = excluded.email,
           contract = excluded.contract,
           status = excluded.status,
+          review_note = excluded.review_note,
           submitted_at = excluded.submitted_at,
           updated_at = now()
       `,
@@ -173,6 +202,7 @@ export async function seedScheduleData() {
         teacher.email,
         teacher.contract,
         teacher.status,
+        teacher.reviewNote ?? "",
         teacher.submittedAt ?? null,
       ],
     );
@@ -187,11 +217,12 @@ export async function seedScheduleData() {
 export async function getSchedulePayload(
   identity: ScheduleIdentity,
 ): Promise<SchedulePayload> {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
   await ensureSeeded();
-  const user = identity.preview
-    ? previewUser(identity)
-    : await ensureUser(identity);
-  const profileId = identity.preview ? "me" : identity.clerkUserId;
+  const user = await ensureUser(identity);
+  const profileId = identity.clerkUserId;
   const profile = await ensureTeacherProfile(profileId, identity);
   const teachers =
     user.role === "direccion" ? await readTeachers(profile.id) : [profile];
@@ -213,6 +244,9 @@ export async function completeOnboarding(
   identity: ScheduleIdentity,
   onboarding: Omit<Onboarding, "complete">,
 ) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
   const validated = validateOnboarding(identity, onboarding);
   const sql = getSql();
   await ensureUser(identity);
@@ -224,6 +258,10 @@ export async function completeOnboarding(
     `,
     [identity.clerkUserId, validated.role, validated.school, validated.code],
   );
+  await recordEvent(identity, identity.clerkUserId, "onboarding.completed", {
+    role: validated.role,
+    school: validated.school,
+  });
   return getSchedulePayload(identity);
 }
 
@@ -231,16 +269,22 @@ export async function setContract(
   identity: ScheduleIdentity,
   contract: ContractKey,
 ) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
   const sql = getSql();
   const profileId = await getProfileId(identity);
   await sql.query(
     `
       update teacher_profiles
-      set contract = $2, status = 'borrador', updated_at = now()
+      set contract = $2, status = 'borrador', review_note = '', updated_at = now()
       where id = $1
     `,
     [profileId, contract],
   );
+  await recordEvent(identity, profileId, "teacher.contract_changed", {
+    contract,
+  });
   return getSchedulePayload(identity);
 }
 
@@ -248,17 +292,26 @@ export async function setAvailability(
   identity: ScheduleIdentity,
   availability: string[],
 ) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
   const profileId = await getProfileId(identity);
   await replaceAvailability(profileId, normalizeAvailability(availability));
   const sql = getSql();
   await sql.query(
-    "update teacher_profiles set status = 'borrador', updated_at = now() where id = $1",
+    "update teacher_profiles set status = 'borrador', review_note = '', updated_at = now() where id = $1",
     [profileId],
   );
+  await recordEvent(identity, profileId, "teacher.availability_changed", {
+    slots: normalizeAvailability(availability).length,
+  });
   return getSchedulePayload(identity);
 }
 
 export async function addCourse(identity: ScheduleIdentity, courseId: string) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
   const sql = getSql();
   const profileId = await getProfileId(identity);
   const course = courseCatalog.find((item) => item.id === courseId);
@@ -290,9 +343,10 @@ export async function addCourse(identity: ScheduleIdentity, courseId: string) {
     [profileId, courseId],
   );
   await sql.query(
-    "update teacher_profiles set status = 'borrador', updated_at = now() where id = $1",
+    "update teacher_profiles set status = 'borrador', review_note = '', updated_at = now() where id = $1",
     [profileId],
   );
+  await recordEvent(identity, profileId, "teacher.course_added", { courseId });
   return getSchedulePayload(identity);
 }
 
@@ -300,6 +354,9 @@ export async function removeCourse(
   identity: ScheduleIdentity,
   courseId: string,
 ) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
   const sql = getSql();
   const profileId = await getProfileId(identity);
   await sql.query(
@@ -307,13 +364,51 @@ export async function removeCourse(
     [profileId, courseId],
   );
   await sql.query(
-    "update teacher_profiles set status = 'borrador', updated_at = now() where id = $1",
+    "update teacher_profiles set status = 'borrador', review_note = '', updated_at = now() where id = $1",
     [profileId],
   );
+  await recordEvent(identity, profileId, "teacher.course_removed", {
+    courseId,
+  });
+  return getSchedulePayload(identity);
+}
+
+export async function observeSchedule(
+  identity: ScheduleIdentity,
+  teacherId: string,
+  note: string,
+) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
+  await ensureDirection(identity);
+  const normalizedNote = note.trim();
+  if (normalizedNote.length < 8) {
+    throw new ScheduleError("Escribe una observación más específica.");
+  }
+  const sql = getSql();
+  const rows = (await sql.query(
+    `
+      update teacher_profiles
+      set status = 'observado', review_note = $2, updated_at = now()
+      where id = $1
+      returning id
+    `,
+    [teacherId, normalizedNote],
+  )) as { id: string }[];
+  if (!rows[0]) {
+    throw new ScheduleError("Docente no encontrado.", 404);
+  }
+  await recordEvent(identity, teacherId, "director.observed_schedule", {
+    note: normalizedNote,
+  });
   return getSchedulePayload(identity);
 }
 
 export async function submitSchedule(identity: ScheduleIdentity) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
   const sql = getSql();
   const profileId = await getProfileId(identity);
   const profile = await readTeacher(profileId);
@@ -327,11 +422,14 @@ export async function submitSchedule(identity: ScheduleIdentity) {
   await sql.query(
     `
       update teacher_profiles
-      set status = 'enviado', submitted_at = $2, updated_at = now()
+      set status = 'enviado', review_note = '', submitted_at = $2, updated_at = now()
       where id = $1
     `,
     [profileId, submittedAt],
   );
+  await recordEvent(identity, profileId, "teacher.submitted_schedule", {
+    submittedAt,
+  });
   return getSchedulePayload(identity);
 }
 
@@ -388,7 +486,15 @@ async function prepareScheduleData() {
     count: number;
   }[];
   if (Number(rows[0]?.count ?? 0) === 0) {
-    await seedScheduleData();
+    await seedCourseCatalog();
+  }
+}
+
+async function ensureDirection(identity: ScheduleIdentity) {
+  await ensureSeeded();
+  const user = await ensureUser(identity);
+  if (user.role !== "direccion") {
+    throw new ScheduleError("No tienes acceso de Dirección.", 403);
   }
 }
 
@@ -449,14 +555,19 @@ function normalizeAvailability(availability: string[]) {
   return Array.from(normalized).sort();
 }
 
-function previewUser(identity: ScheduleIdentity): AppUserRow {
+function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
+  const profile = seedTeachers[0];
   return {
-    clerk_user_id: identity.clerkUserId,
-    email: identity.email,
-    name: identity.name,
-    role: "direccion",
-    school: "Ing. de Sistemas",
-    code: "PREVIEW",
+    profile,
+    teachers: seedTeachers,
+    onboarding: {
+      role: "direccion",
+      school: "Ing. de Sistemas",
+      code: "PREVIEW",
+      complete: true,
+    },
+    canUseDirection: true,
+    userName: identity.name,
   };
 }
 
@@ -482,7 +593,7 @@ async function ensureTeacherProfile(
   identity: ScheduleIdentity,
 ) {
   if (identity.preview) {
-    return readTeacher(profileId);
+    return seedTeachers[0];
   }
   const sql = getSql();
   await sql.query(
@@ -530,7 +641,7 @@ async function readTeachers(currentId: string) {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      select id, name, email, contract, status, submitted_at
+      select id, name, email, contract, status, review_note, submitted_at, updated_at::text
       from teacher_profiles
       order by case when id = $1 then 0 else 1 end, name asc
     `,
@@ -543,7 +654,7 @@ async function readTeacher(id: string) {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      select id, name, email, contract, status, submitted_at
+      select id, name, email, contract, status, review_note, submitted_at, updated_at::text
       from teacher_profiles
       where id = $1
       limit 1
@@ -583,7 +694,9 @@ async function inflateTeacher(row: TeacherRow): Promise<TeacherProfile> {
     email: row.email,
     contract: row.contract,
     status: row.status,
+    reviewNote: row.review_note || undefined,
     submittedAt: row.submitted_at ?? undefined,
+    updatedAt: row.updated_at ?? undefined,
     courses: courseRows.map((course) => ({
       id: course.id,
       name: course.name,
@@ -643,4 +756,23 @@ async function replaceCourses(teacherId: string, courseIds: string[]) {
       [teacherId, courseId, index + 1],
     );
   }
+}
+
+async function recordEvent(
+  identity: ScheduleIdentity,
+  teacherId: string,
+  eventType: string,
+  metadata: Record<string, unknown> = {},
+) {
+  if (identity.preview) {
+    return;
+  }
+  const sql = getSql();
+  await sql.query(
+    `
+      insert into schedule_events (teacher_id, actor_user_id, event_type, metadata)
+      values ($1, $2, $3, $4::jsonb)
+    `,
+    [teacherId, identity.clerkUserId, eventType, JSON.stringify(metadata)],
+  );
 }

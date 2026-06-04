@@ -104,6 +104,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Toolbar,
   ToolbarButton,
@@ -145,6 +146,7 @@ type ScheduleAction =
   | { action: "setAvailability"; availability: string[] }
   | { action: "addCourse"; courseId: string }
   | { action: "removeCourse"; courseId: string }
+  | { action: "observe"; teacherId: string; note: string }
   | { action: "submit" };
 
 type ApiError = {
@@ -177,6 +179,7 @@ export function ScheduleApp({
   const [courseId, setCourseId] = useState(courseCatalog[0].id);
   const [showOnlyPending, setShowOnlyPending] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reviewNote, setReviewNote] = useState("");
 
   const endpoint = preview ? "/api/schedule?preview=1" : "/api/schedule";
 
@@ -318,6 +321,29 @@ export function ScheduleApp({
     toast.success("PDF generado.");
   };
 
+  const handleSelectTeacher = (id: string) => {
+    const teacher = allTeachers.find((item) => item.id === id);
+    setSelectedTeacherId(id);
+    setReviewNote(teacher?.reviewNote ?? "");
+  };
+
+  const handleObserveTeacher = async () => {
+    const note = reviewNote.trim();
+    if (note.length < 8) {
+      toast.error("Escribe una observación más específica.");
+      return;
+    }
+    const payload = await request({
+      action: "observe",
+      teacherId: selectedTeacher.id,
+      note,
+    });
+    if (payload) {
+      toast.success("Observación registrada.");
+      setReviewNote("");
+    }
+  };
+
   return (
     <ScheduleFrame
       canSignOut={showClerkControls}
@@ -333,11 +359,15 @@ export function ScheduleApp({
         <DirectorView
           handleExportPdf={handleExportPdf}
           handleExportXlsx={handleExportXlsx}
+          handleObserveTeacher={handleObserveTeacher}
+          reviewNote={reviewNote}
           selectedTeacher={selectedTeacher}
           selectedTeacherId={selectedTeacher.id}
-          setSelectedTeacherId={setSelectedTeacherId}
+          setReviewNote={setReviewNote}
+          setSelectedTeacherId={handleSelectTeacher}
           setShowOnlyPending={setShowOnlyPending}
           showOnlyPending={showOnlyPending}
+          saving={saving}
           teachers={filteredTeachers}
           validation={selectedValidation}
         />
@@ -1075,6 +1105,13 @@ function TeacherStatusPanel({
         </div>
       </CardHeader>
       <CardContent className="grid gap-2 p-2.5 text-sm">
+        {profile.reviewNote ? (
+          <Alert variant="warning" className="p-2.5">
+            <AlertCircle />
+            <AlertTitle>Observación de Dirección</AlertTitle>
+            <AlertDescription>{profile.reviewNote}</AlertDescription>
+          </Alert>
+        ) : null}
         <div className="grid grid-cols-3 gap-2">
           <StatusMetric
             label="Horas"
@@ -1116,8 +1153,12 @@ function StatusMetric({ label, value }: { label: string; value: string }) {
 function DirectorView({
   handleExportPdf,
   handleExportXlsx,
+  handleObserveTeacher,
+  reviewNote,
   selectedTeacher,
   selectedTeacherId,
+  saving,
+  setReviewNote,
   setSelectedTeacherId,
   setShowOnlyPending,
   showOnlyPending,
@@ -1126,8 +1167,12 @@ function DirectorView({
 }: {
   handleExportPdf: () => Promise<void>;
   handleExportXlsx: () => Promise<void>;
+  handleObserveTeacher: () => Promise<void>;
+  reviewNote: string;
   selectedTeacher: TeacherProfile;
   selectedTeacherId: string;
+  saving: boolean;
+  setReviewNote: (note: string) => void;
   setSelectedTeacherId: (id: string) => void;
   setShowOnlyPending: (value: boolean) => void;
   showOnlyPending: boolean;
@@ -1224,6 +1269,13 @@ function DirectorView({
                         profile={selectedTeacher}
                         validation={validation}
                       />
+                      <DirectorReviewCard
+                        onObserveTeacher={handleObserveTeacher}
+                        reviewNote={reviewNote}
+                        saving={saving}
+                        selectedTeacher={selectedTeacher}
+                        setReviewNote={setReviewNote}
+                      />
                     </SheetPanel>
                   </SheetContent>
                 </Sheet>
@@ -1248,7 +1300,16 @@ function DirectorView({
       </div>
       <aside className="hidden min-h-0 gap-3 2xl:grid 2xl:grid-rows-[minmax(0,1fr)_auto]">
         <CoursesReviewCard courses={selectedTeacher.courses} />
-        <RulePanel profile={selectedTeacher} validation={validation} />
+        <div className="grid gap-3">
+          <RulePanel profile={selectedTeacher} validation={validation} />
+          <DirectorReviewCard
+            onObserveTeacher={handleObserveTeacher}
+            reviewNote={reviewNote}
+            saving={saving}
+            selectedTeacher={selectedTeacher}
+            setReviewNote={setReviewNote}
+          />
+        </div>
       </aside>
     </section>
   );
@@ -1265,6 +1326,55 @@ function CoursesReviewCard({ courses }: { courses: Course[] }) {
       </CardHeader>
       <CardContent className="min-h-0 flex-1 p-0">
         <CoursesTable compact courses={courses} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function DirectorReviewCard({
+  onObserveTeacher,
+  reviewNote,
+  saving,
+  selectedTeacher,
+  setReviewNote,
+}: {
+  onObserveTeacher: () => Promise<void>;
+  reviewNote: string;
+  saving: boolean;
+  selectedTeacher: TeacherProfile;
+  setReviewNote: (note: string) => void;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b p-3">
+        <CardTitle className="text-base">Observación</CardTitle>
+        <CardDescription>
+          Devuelve el horario al docente con una nota accionable.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2 p-3">
+        {selectedTeacher.reviewNote ? (
+          <Alert variant="warning" className="p-2.5">
+            <AlertCircle />
+            <AlertTitle>Observación vigente</AlertTitle>
+            <AlertDescription>{selectedTeacher.reviewNote}</AlertDescription>
+          </Alert>
+        ) : null}
+        <Textarea
+          aria-label="Observación para el docente"
+          onChange={(event) => setReviewNote(event.target.value)}
+          placeholder="Ej. Ajustar viernes 14:00 - 18:00 por cruce con aula asignada."
+          size="sm"
+          value={reviewNote}
+        />
+        <Button
+          disabled={selectedTeacher.status === "borrador"}
+          loading={saving}
+          onClick={onObserveTeacher}
+          variant="outline"
+        >
+          Marcar observado
+        </Button>
       </CardContent>
     </Card>
   );

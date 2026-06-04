@@ -23,7 +23,9 @@ export type TeacherProfile = {
   status: "enviado" | "borrador" | "observado";
   courses: Course[];
   availability: string[];
+  reviewNote?: string;
   submittedAt?: string;
+  updatedAt?: string;
 };
 
 export const days: { key: DayKey; label: string }[] = [
