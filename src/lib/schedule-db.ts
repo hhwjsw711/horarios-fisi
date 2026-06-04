@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import {
   type ContractKey,
+  type Course,
   contractRules,
   courseCatalog,
   type DayKey,
@@ -31,6 +32,8 @@ export type ScheduleIdentity = {
 export type SchedulePayload = {
   profile: TeacherProfile;
   teachers: TeacherProfile[];
+  catalog: Course[];
+  schools: string[];
   onboarding: Onboarding;
   canUseDirection: boolean;
   userName: string;
@@ -69,7 +72,14 @@ type CourseRow = {
   id: string;
   name: string;
   school: string;
+  active: boolean;
   is_thesis: boolean;
+};
+
+type CourseInput = {
+  name: string;
+  school: string;
+  isThesis: boolean;
 };
 
 type AvailabilityRow = {
@@ -120,6 +130,7 @@ export async function ensureScheduleSchema() {
       id text primary key,
       name text not null,
       school text not null,
+      active boolean not null default true,
       is_thesis boolean not null default false
     )
   `);
@@ -151,6 +162,9 @@ export async function ensureScheduleSchema() {
   `);
   await sql.query(
     "alter table teacher_profiles add column if not exists review_note text not null default ''",
+  );
+  await sql.query(
+    "alter table courses add column if not exists active boolean not null default true",
   );
 }
 
@@ -224,11 +238,15 @@ export async function getSchedulePayload(
   const user = await ensureUser(identity);
   const profileId = identity.clerkUserId;
   const profile = await ensureTeacherProfile(profileId, identity);
+  const catalog = await readCourseCatalog();
+  const schoolOptions = await readSchools();
   const teachers =
     user.role === "direccion" ? await readTeachers(profile.id) : [profile];
   return {
     profile,
     teachers,
+    catalog,
+    schools: schoolOptions,
     onboarding: {
       role: user.role,
       school: user.school,
@@ -247,7 +265,12 @@ export async function completeOnboarding(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  const validated = validateOnboarding(identity, onboarding);
+  await ensureSeeded();
+  const validated = validateOnboarding(
+    identity,
+    onboarding,
+    await readSchools(),
+  );
   const sql = getSql();
   await ensureUser(identity);
   await sql.query(
@@ -314,7 +337,7 @@ export async function addCourse(identity: ScheduleIdentity, courseId: string) {
   }
   const sql = getSql();
   const profileId = await getProfileId(identity);
-  const course = courseCatalog.find((item) => item.id === courseId);
+  const course = await readCourse(courseId);
   if (!course) {
     throw new ScheduleError("Curso no válido.");
   }
@@ -325,7 +348,7 @@ export async function addCourse(identity: ScheduleIdentity, courseId: string) {
   ).length;
   if (
     !alreadySelected &&
-    !course.isThesis &&
+    !course.is_thesis &&
     countedCourses >= contractRules[profile.contract].maxCourses
   ) {
     throw new ScheduleError("Ya alcanzaste el máximo de cursos permitido.");
@@ -347,6 +370,69 @@ export async function addCourse(identity: ScheduleIdentity, courseId: string) {
     [profileId],
   );
   await recordEvent(identity, profileId, "teacher.course_added", { courseId });
+  return getSchedulePayload(identity);
+}
+
+export async function createCourse(
+  identity: ScheduleIdentity,
+  input: CourseInput,
+) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
+  await ensureDirection(identity);
+  const name = input.name.trim();
+  const school = input.school.trim();
+  if (name.length < 3 || school.length < 3) {
+    throw new ScheduleError("Curso y escuela son obligatorios.");
+  }
+  const id = slugifyCourseId(`${school}-${name}`);
+  const sql = getSql();
+  await sql.query(
+    `
+      insert into courses (id, name, school, active, is_thesis)
+      values ($1, $2, $3, true, $4)
+      on conflict (id) do update set
+        name = excluded.name,
+        school = excluded.school,
+        active = true,
+        is_thesis = excluded.is_thesis
+    `,
+    [id, name, school, input.isThesis],
+  );
+  await recordEvent(identity, id, "catalog.course_upserted", {
+    name,
+    school,
+    isThesis: input.isThesis,
+  });
+  return getSchedulePayload(identity);
+}
+
+export async function setCourseActive(
+  identity: ScheduleIdentity,
+  courseId: string,
+  active: boolean,
+) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
+  await ensureDirection(identity);
+  const sql = getSql();
+  const rows = (await sql.query(
+    `
+      update courses
+      set active = $2
+      where id = $1
+      returning id
+    `,
+    [courseId, active],
+  )) as { id: string }[];
+  if (!rows[0]) {
+    throw new ScheduleError("Curso no encontrado.", 404);
+  }
+  await recordEvent(identity, courseId, "catalog.course_status_changed", {
+    active,
+  });
   return getSchedulePayload(identity);
 }
 
@@ -501,8 +587,9 @@ async function ensureDirection(identity: ScheduleIdentity) {
 function validateOnboarding(
   identity: ScheduleIdentity,
   onboarding: Omit<Onboarding, "complete">,
+  availableSchools: string[],
 ) {
-  if (!schools.includes(onboarding.school)) {
+  if (!availableSchools.includes(onboarding.school)) {
     throw new ScheduleError("Escuela no válida.");
   }
   if (onboarding.code.trim().length < 4) {
@@ -541,6 +628,51 @@ function getDirectionEmailAllowlist() {
   );
 }
 
+async function readCourseCatalog() {
+  const sql = getSql();
+  const rows = (await sql.query(
+    `
+      select id, name, school, active, is_thesis
+      from courses
+      order by active desc, school asc, name asc
+    `,
+  )) as CourseRow[];
+  return rows.map((course) => ({
+    id: course.id,
+    name: course.name,
+    school: course.school,
+    active: course.active,
+    isThesis: course.is_thesis,
+  }));
+}
+
+async function readCourse(id: string) {
+  const sql = getSql();
+  const rows = (await sql.query(
+    `
+      select id, name, school, active, is_thesis
+      from courses
+      where id = $1 and active = true
+      limit 1
+    `,
+    [id],
+  )) as CourseRow[];
+  return rows[0];
+}
+
+async function readSchools() {
+  const sql = getSql();
+  const rows = (await sql.query(
+    `
+      select distinct school
+      from courses
+      where active = true
+      order by school asc
+    `,
+  )) as { school: string }[];
+  return rows.length ? rows.map((row) => row.school) : schools;
+}
+
 function normalizeAvailability(availability: string[]) {
   const allowedDays = new Set(days.map((day) => day.key));
   const allowedHours = new Set(hours);
@@ -555,11 +687,23 @@ function normalizeAvailability(availability: string[]) {
   return Array.from(normalized).sort();
 }
 
+function slugifyCourseId(value: string) {
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return normalized || `curso-${Date.now()}`;
+}
+
 function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
   const profile = seedTeachers[0];
   return {
     profile,
     teachers: seedTeachers,
+    catalog: courseCatalog,
+    schools,
     onboarding: {
       role: "direccion",
       school: "Ing. de Sistemas",

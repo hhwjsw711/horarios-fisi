@@ -5,6 +5,7 @@ import type { AppRole } from "@/lib/schedule-db";
 import {
   addCourse,
   completeOnboarding,
+  createCourse,
   getSchedulePayload,
   observeSchedule,
   removeCourse,
@@ -12,6 +13,7 @@ import {
   type ScheduleIdentity,
   setAvailability,
   setContract,
+  setCourseActive,
   submitSchedule,
 } from "@/lib/schedule-db";
 
@@ -86,6 +88,26 @@ export async function PATCH(request: NextRequest) {
       }
       return NextResponse.json(
         await observeSchedule(identity, body.teacherId, body.note),
+      );
+    }
+    if (body.action === "createCourse") {
+      if (typeof body.name !== "string" || typeof body.school !== "string") {
+        return NextResponse.json({ error: "Invalid course" }, { status: 400 });
+      }
+      return NextResponse.json(
+        await createCourse(identity, {
+          name: body.name,
+          school: body.school,
+          isThesis: Boolean(body.isThesis),
+        }),
+      );
+    }
+    if (body.action === "setCourseActive") {
+      if (typeof body.courseId !== "string") {
+        return NextResponse.json({ error: "Invalid course" }, { status: 400 });
+      }
+      return NextResponse.json(
+        await setCourseActive(identity, body.courseId, Boolean(body.active)),
       );
     }
     if (body.action === "submit") {

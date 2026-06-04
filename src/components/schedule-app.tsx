@@ -17,6 +17,7 @@ import {
   Plus,
   Save,
   Send,
+  Settings2,
   ShieldCheck,
   Sun,
   Trash2,
@@ -132,7 +133,7 @@ import {
 import type { AppRole, Onboarding, SchedulePayload } from "@/lib/schedule-db";
 import { cn } from "@/lib/utils";
 
-type ViewKey = "docente" | "direccion";
+type ViewKey = "docente" | "direccion" | "configuracion";
 
 type Validation = {
   selectedHours: number;
@@ -147,6 +148,8 @@ type ScheduleAction =
   | { action: "addCourse"; courseId: string }
   | { action: "removeCourse"; courseId: string }
   | { action: "observe"; teacherId: string; note: string }
+  | { action: "createCourse"; name: string; school: string; isThesis: boolean }
+  | { action: "setCourseActive"; courseId: string; active: boolean }
   | { action: "submit" };
 
 type ApiError = {
@@ -192,7 +195,15 @@ export function ScheduleApp({
     }
     const payload = (await response.json()) as SchedulePayload;
     setData(payload);
-    setSchool(payload.onboarding.school || schools[0]);
+    const activeCatalog = payload.catalog.filter(
+      (course) => course.active !== false,
+    );
+    setSchool(payload.onboarding.school || payload.schools[0] || schools[0]);
+    setCourseId((current) =>
+      activeCatalog.some((course) => course.id === current)
+        ? current
+        : (activeCatalog[0]?.id ?? current),
+    );
     setSelectedTeacherId((current) => current ?? payload.profile.id);
   }, [endpoint]);
 
@@ -242,7 +253,11 @@ export function ScheduleApp({
     allTeachers.find((teacher) => teacher.id === selectedTeacherId) ?? profile;
   const validation = validateTeacher(profile);
   const selectedValidation = validateTeacher(selectedTeacher);
-  const catalogForSchool = courseCatalog.filter(
+  const activeCatalog = data.catalog.filter(
+    (course) => course.active !== false,
+  );
+  const schoolOptions = data.schools.length ? data.schools : schools;
+  const catalogForSchool = activeCatalog.filter(
     (course) => course.school === school || course.school === "Transversal",
   );
   const completion = completionFor(profile, validation);
@@ -278,7 +293,7 @@ export function ScheduleApp({
   };
 
   const handleAddCourse = async () => {
-    const course = courseCatalog.find((item) => item.id === courseId);
+    const course = activeCatalog.find((item) => item.id === courseId);
     if (!course) {
       return;
     }
@@ -344,6 +359,41 @@ export function ScheduleApp({
     }
   };
 
+  const handleCreateCourse = async ({
+    isThesis,
+    name,
+    school: nextSchool,
+  }: {
+    isThesis: boolean;
+    name: string;
+    school: string;
+  }) => {
+    const payload = await request({
+      action: "createCourse",
+      name,
+      school: nextSchool,
+      isThesis,
+    });
+    if (payload) {
+      toast.success("Curso guardado en el catálogo.");
+    }
+    return payload;
+  };
+
+  const handleSetCourseActive = async (
+    courseIdValue: string,
+    active: boolean,
+  ) => {
+    const payload = await request({
+      action: "setCourseActive",
+      courseId: courseIdValue,
+      active,
+    });
+    if (payload) {
+      toast.success(active ? "Curso reactivado." : "Curso suspendido.");
+    }
+  };
+
   return (
     <ScheduleFrame
       canSignOut={showClerkControls}
@@ -355,7 +405,15 @@ export function ScheduleApp({
       status={profile.status}
       userName={data.userName}
     >
-      {view === "direccion" && canUseDirection ? (
+      {view === "configuracion" && canUseDirection ? (
+        <ConfigurationView
+          catalog={data.catalog}
+          onCreateCourse={handleCreateCourse}
+          onSetCourseActive={handleSetCourseActive}
+          saving={saving}
+          schools={schoolOptions}
+        />
+      ) : view === "direccion" && canUseDirection ? (
         <DirectorView
           handleExportPdf={handleExportPdf}
           handleExportXlsx={handleExportXlsx}
@@ -371,7 +429,7 @@ export function ScheduleApp({
           teachers={filteredTeachers}
           validation={selectedValidation}
         />
-      ) : view === "direccion" ? (
+      ) : view === "direccion" || view === "configuracion" ? (
         <LockedDirectionView />
       ) : (
         <DocenteView
@@ -385,6 +443,7 @@ export function ScheduleApp({
           profile={profile}
           saving={saving}
           school={school}
+          schools={schoolOptions}
           setCourseId={setCourseId}
           setSchool={setSchool}
           validation={validation}
@@ -443,6 +502,7 @@ export function OnboardingRouteApp({ preview = false }: { preview?: boolean }) {
     <OnboardingView
       defaultSchool={data.onboarding.school || schools[0]}
       onComplete={handleComplete}
+      schoolOptions={data.schools.length ? data.schools : schools}
       userEmail={data.profile.email}
     />
   );
@@ -616,6 +676,19 @@ function AppSidebar({
                 <SidebarMenuBadge>{pendingCount}</SidebarMenuBadge>
               ) : null}
             </SidebarMenuItem>
+            {canUseDirection ? (
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
+                  isActive={selectedView === "configuracion"}
+                  render={<Link href="/direccion/configuracion" />}
+                  tooltip="Configuración"
+                >
+                  <Settings2 />
+                  <span>Configuración</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ) : null}
           </SidebarMenu>
         </SidebarGroup>
         <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />
@@ -699,10 +772,12 @@ function AppError({ error, onRetry }: { error: string; onRetry: () => void }) {
 function OnboardingView({
   defaultSchool,
   onComplete,
+  schoolOptions,
   userEmail,
 }: {
   defaultSchool: string;
   onComplete: (next: Onboarding) => Promise<void>;
+  schoolOptions: string[];
   userEmail?: string;
 }) {
   const [role, setRole] = useState<AppRole>("docente");
@@ -788,7 +863,7 @@ function OnboardingView({
                   <SelectContent>
                     <SelectGroup>
                       <SelectLabel>Escuelas</SelectLabel>
-                      {schools.map((item) => (
+                      {schoolOptions.map((item) => (
                         <SelectItem key={item} value={item}>
                           {item}
                         </SelectItem>
@@ -897,6 +972,7 @@ function DocenteView({
   profile,
   saving,
   school,
+  schools,
   setCourseId,
   setSchool,
   validation,
@@ -911,6 +987,7 @@ function DocenteView({
   profile: TeacherProfile;
   saving: boolean;
   school: string;
+  schools: string[];
   setCourseId: (id: string) => void;
   setSchool: (school: string) => void;
   validation: Validation;
@@ -975,6 +1052,7 @@ function DocenteView({
           handleAddCourse={handleAddCourse}
           handleRemoveCourse={handleRemoveCourse}
           school={school}
+          schools={schools}
           setCourseId={setCourseId}
           setSchool={setSchool}
         />
@@ -996,6 +1074,7 @@ function CoursesEditorCard({
   handleAddCourse,
   handleRemoveCourse,
   school,
+  schools,
   setCourseId,
   setSchool,
 }: {
@@ -1005,6 +1084,7 @@ function CoursesEditorCard({
   handleAddCourse: () => void;
   handleRemoveCourse: (id: string) => void;
   school: string;
+  schools: string[];
   setCourseId: (id: string) => void;
   setSchool: (school: string) => void;
 }) {
@@ -1066,6 +1146,230 @@ function CoursesEditorCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ConfigurationView({
+  catalog,
+  onCreateCourse,
+  onSetCourseActive,
+  saving,
+  schools: schoolOptions,
+}: {
+  catalog: Course[];
+  onCreateCourse: (input: {
+    isThesis: boolean;
+    name: string;
+    school: string;
+  }) => Promise<SchedulePayload | null>;
+  onSetCourseActive: (courseId: string, active: boolean) => Promise<void>;
+  saving: boolean;
+  schools: string[];
+}) {
+  const [name, setName] = useState("");
+  const [school, setSchool] = useState(schoolOptions[0] ?? "");
+  const [customSchool, setCustomSchool] = useState("");
+  const [isThesis, setIsThesis] = useState(false);
+  const selectedSchool = customSchool.trim() || school;
+  const activeCount = catalog.filter(
+    (course) => course.active !== false,
+  ).length;
+  const inactiveCount = catalog.length - activeCount;
+
+  useEffect(() => {
+    if (!school && schoolOptions[0]) {
+      setSchool(schoolOptions[0]);
+    }
+  }, [school, schoolOptions]);
+
+  const handleSubmit = async () => {
+    const normalizedName = name.trim();
+    if (normalizedName.length < 3 || selectedSchool.length < 3) {
+      toast.error("Completa curso y escuela.");
+      return;
+    }
+    const payload = await onCreateCourse({
+      isThesis,
+      name: normalizedName,
+      school: selectedSchool,
+    });
+    if (payload) {
+      setName("");
+      setCustomSchool("");
+      setIsThesis(false);
+    }
+  };
+
+  return (
+    <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <Card className="min-h-0 overflow-hidden" size="sm">
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Settings2 className="size-4 text-gold" />
+            Nuevo curso
+          </CardTitle>
+          <CardDescription>
+            Catálogo usado por docentes y Dirección.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 p-2.5">
+          <Field>
+            <FieldLabel>Escuela existente</FieldLabel>
+            <Select value={school} onValueChange={setSchool}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecciona escuela" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Escuelas activas</SelectLabel>
+                  {schoolOptions.map((item) => (
+                    <SelectItem key={item} value={item}>
+                      {item}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel>Nueva escuela</FieldLabel>
+            <Input
+              onChange={(event) => setCustomSchool(event.target.value)}
+              placeholder="Opcional"
+              value={customSchool}
+            />
+            <FieldDescription>
+              Si escribes aquí, se usará esta escuela.
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel>Nombre del curso</FieldLabel>
+            <Input
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Ej. Ingeniería de Software"
+              value={name}
+            />
+          </Field>
+          <Field className="flex-row items-center justify-between rounded-md border bg-muted/25 p-2.5">
+            <div>
+              <FieldLabel>Cuenta como Tesis</FieldLabel>
+              <FieldDescription>No consume cupo de cursos.</FieldDescription>
+            </div>
+            <Switch checked={isThesis} onCheckedChange={setIsThesis} />
+          </Field>
+          <Button
+            disabled={!name.trim() || !selectedSchool}
+            loading={saving}
+            onClick={handleSubmit}
+          >
+            <Plus data-icon="inline-start" />
+            Guardar curso
+          </Button>
+        </CardContent>
+      </Card>
+      <Card className="min-h-0 overflow-hidden" size="sm">
+        <CardHeader className="flex shrink-0 flex-col gap-2 border-b md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <CardTitle className="truncate font-serif text-xl">
+              Configuración de catálogo
+            </CardTitle>
+            <CardDescription className="truncate">
+              Cursos activos disponibles para selección docente.
+            </CardDescription>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Badge variant="default">{activeCount} activos</Badge>
+            <Badge variant="secondary">{inactiveCount} suspendidos</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="min-h-0 flex-1 p-0">
+          <CourseCatalogTable
+            catalog={catalog}
+            onSetCourseActive={onSetCourseActive}
+            saving={saving}
+          />
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function CourseCatalogTable({
+  catalog,
+  onSetCourseActive,
+  saving,
+}: {
+  catalog: Course[];
+  onSetCourseActive: (courseId: string, active: boolean) => Promise<void>;
+  saving: boolean;
+}) {
+  if (!catalog.length) {
+    return (
+      <Empty className="h-full py-10">
+        <EmptyMedia variant="icon">
+          <BookOpen />
+        </EmptyMedia>
+        <EmptyHeader>
+          <EmptyTitle>Sin cursos configurados</EmptyTitle>
+          <EmptyDescription>
+            Agrega el primer curso institucional.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
+  return (
+    <ScrollArea scrollbarGutter>
+      <Table className="text-sm">
+        <TableHeader className="sticky top-0 z-10 bg-card">
+          <TableRow className="h-9">
+            <TableHead className="h-9 w-12 px-2">N°</TableHead>
+            <TableHead className="h-9 px-2">Curso</TableHead>
+            <TableHead className="h-9 px-2">Escuela Profesional</TableHead>
+            <TableHead className="h-9 w-28 px-2">Estado</TableHead>
+            <TableHead className="h-9 w-24 px-2 text-right">Activo</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {catalog.map((course, index) => {
+            const active = course.active !== false;
+            return (
+              <TableRow className="h-10" key={course.id}>
+                <TableCell className="px-2 py-1 text-muted-foreground tabular-nums">
+                  {index + 1}
+                </TableCell>
+                <TableCell className="px-2 py-1 font-medium">
+                  {course.name}
+                  {course.isThesis ? (
+                    <Badge variant="secondary" className="ml-2">
+                      Tesis
+                    </Badge>
+                  ) : null}
+                </TableCell>
+                <TableCell className="px-2 py-1 text-muted-foreground">
+                  {course.school}
+                </TableCell>
+                <TableCell className="px-2 py-1">
+                  <Badge variant={active ? "default" : "secondary"}>
+                    {active ? "Activo" : "Suspendido"}
+                  </Badge>
+                </TableCell>
+                <TableCell className="px-2 py-1 text-right">
+                  <Switch
+                    checked={active}
+                    disabled={saving}
+                    onCheckedChange={(checked) =>
+                      onSetCourseActive(course.id, checked)
+                    }
+                  />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </ScrollArea>
   );
 }
 
@@ -1737,6 +2041,9 @@ function roleLabel(role: AppRole) {
 }
 
 function routeLabel(view: ViewKey) {
+  if (view === "configuracion") {
+    return "Configuración";
+  }
   return view === "direccion" ? "Dirección" : "Docente";
 }
 

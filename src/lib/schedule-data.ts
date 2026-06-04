@@ -12,6 +12,7 @@ export type Course = {
   id: string;
   name: string;
   school: string;
+  active?: boolean;
   isThesis?: boolean;
 };
 
