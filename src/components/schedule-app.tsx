@@ -9,6 +9,7 @@ import {
   Check,
   ChevronRight,
   FileSpreadsheet,
+  Files,
   GraduationCap,
   History,
   Home,
@@ -640,6 +641,15 @@ export function ScheduleApp({
     toast.success("PDF generado.");
   };
 
+  const handleExportAllPdf = async () => {
+    if (!allTeachers.length) {
+      toast.error("No hay docentes para exportar.");
+      return;
+    }
+    await exportAllPdf(allTeachers, academicTerm);
+    toast.success(`${allTeachers.length} páginas listas para imprimir.`);
+  };
+
   const handleSelectTeacher = (id: string) => {
     const teacher = allTeachers.find((item) => item.id === id);
     setSelectedTeacherId(id);
@@ -944,7 +954,9 @@ export function ScheduleApp({
         <DirectorView
           catalog={activeCatalog}
           courseSavingIds={courseSavingIds}
+          exportTeacherCount={allTeachers.length}
           handleExportPdf={handleExportPdf}
+          handleExportAllPdf={handleExportAllPdf}
           handleExportXlsx={handleExportXlsx}
           handleApproveTeacher={handleApproveTeacher}
           handleAssignTeacherCourse={handleAssignTeacherCourse}
@@ -1790,23 +1802,31 @@ function DocenteRuleStrip({
   ];
 
   return (
-    <div className="grid shrink-0 grid-cols-3 border-b bg-muted/25 text-sm">
-      {items.map((item) => (
-        <div
-          className="flex min-w-0 items-center justify-between gap-2 border-r px-3 py-1.5 last:border-r-0"
-          key={item.label}
-        >
-          <span className="truncate text-muted-foreground">{item.label}</span>
-          <span
-            className={cn(
-              "font-semibold tabular-nums",
-              item.complete ? "text-availability" : "text-foreground",
-            )}
-          >
-            {item.value}
-          </span>
+    <div className="grid shrink-0 gap-2 border-b bg-muted/25 px-3 py-2 text-sm lg:grid-cols-[minmax(0,1fr)_minmax(360px,auto)] lg:items-center">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 font-medium">
+          <Info className="size-4 text-gold" />
+          <span>Reglas activas</span>
         </div>
-      ))}
+        <p className="mt-1 text-muted-foreground">{rule.text}</p>
+      </div>
+      <div className="grid min-w-0 grid-cols-3 gap-2">
+        {items.map((item) => (
+          <div className="rounded-md border bg-card px-2 py-1" key={item.label}>
+            <div className="truncate text-muted-foreground text-xs">
+              {item.label}
+            </div>
+            <div
+              className={cn(
+                "font-semibold tabular-nums",
+                item.complete ? "text-availability" : "text-foreground",
+              )}
+            >
+              {item.value}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3031,8 +3051,10 @@ function DirectorView({
   catalog,
   courseSavingIds,
   events,
+  exportTeacherCount,
   handleApproveTeacher,
   handleAssignTeacherCourse,
+  handleExportAllPdf,
   handleExportPdf,
   handleExportXlsx,
   handleObserveTeacher,
@@ -3060,11 +3082,13 @@ function DirectorView({
   catalog: Course[];
   courseSavingIds: string[];
   events: ScheduleEvent[];
+  exportTeacherCount: number;
   handleApproveTeacher: () => Promise<void>;
   handleAssignTeacherCourse: (
     teacherId: string,
     courseId: string,
   ) => Promise<SchedulePayload | null>;
+  handleExportAllPdf: () => Promise<void>;
   handleExportPdf: () => Promise<void>;
   handleExportXlsx: () => Promise<void>;
   handleObserveTeacher: () => Promise<void>;
@@ -3298,6 +3322,18 @@ function DirectorView({
                       </SheetPanel>
                     </SheetContent>
                   </Sheet>
+                  <ToolbarButton
+                    onClick={handleExportAllPdf}
+                    render={
+                      <Button
+                        disabled={exportTeacherCount === 0}
+                        variant="outline"
+                      />
+                    }
+                  >
+                    <Files data-icon="inline-start" />
+                    PDF todos
+                  </ToolbarButton>
                   <ToolbarButton
                     onClick={handleExportPdf}
                     render={<Button variant="outline" />}
@@ -4492,7 +4528,35 @@ async function exportPdf(
   academicTerm: string,
 ) {
   const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ format: "a4", orientation: "portrait", unit: "mm" });
+  const doc = createPrintedScheduleDocument(jsPDF);
+  drawPrintedSchedulePage(doc, profile, academicTerm);
+  doc.save(`${printedScheduleFileName(profile)}.pdf`);
+}
+
+async function exportAllPdf(profiles: TeacherProfile[], academicTerm: string) {
+  const { jsPDF } = await import("jspdf");
+  const doc = createPrintedScheduleDocument(jsPDF);
+  profiles.forEach((profile, index) => {
+    if (index > 0) {
+      doc.addPage("a4", "portrait");
+    }
+    drawPrintedSchedulePage(doc, profile, academicTerm);
+  });
+  doc.save(printedScheduleBundleFileName(academicTerm));
+}
+
+type JsPdfConstructor = typeof import("jspdf").jsPDF;
+type JsPdfDocument = InstanceType<JsPdfConstructor>;
+
+function createPrintedScheduleDocument(jsPDF: JsPdfConstructor) {
+  return new jsPDF({ format: "a4", orientation: "portrait", unit: "mm" });
+}
+
+function drawPrintedSchedulePage(
+  doc: JsPdfDocument,
+  profile: TeacherProfile,
+  academicTerm: string,
+) {
   const selected = new Set(profile.availability);
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -4709,8 +4773,6 @@ async function exportPdf(
     );
     y += courseRowHeight;
   });
-
-  doc.save(`${printedScheduleFileName(profile)}.pdf`);
 }
 
 type XlsxMerge = {
@@ -4999,6 +5061,16 @@ function printedScheduleFileName(profile: TeacherProfile) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
   return `disponibilidad-docente-${name || "unmsm"}`;
+}
+
+function printedScheduleBundleFileName(academicTerm: string) {
+  const term = academicTerm
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return `disponibilidades-docentes-${term || "unmsm"}.pdf`;
 }
 
 export function SignedOutShell() {
