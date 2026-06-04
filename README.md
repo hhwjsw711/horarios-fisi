@@ -44,6 +44,7 @@ bun run smoke https://horarios-unmsm.vercel.app
 - Registro de disponibilidad por docente.
 - Validación de reglas para tiempo completo, parcial 20 h y parcial 10 h.
 - Catálogo de escuelas y cursos editable desde Dirección.
+- Búsqueda y filtros de catálogo por curso, escuela y estado.
 - Vista de Dirección para revisar docentes.
 - Búsqueda y filtros administrativos por docente, correo y estado.
 - Gestión de usuarios, roles y escuelas desde Dirección.

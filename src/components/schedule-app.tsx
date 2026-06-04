@@ -158,6 +158,7 @@ type Validation = ScheduleValidation;
 type TeacherStatusFilter = TeacherProfile["status"] | "all";
 type UserRoleFilter = AppRole | "all";
 type UserOnboardingFilter = "all" | "complete" | "pending";
+type CourseStatusFilter = "all" | "active" | "suspended";
 
 type ScheduleAction =
   | { action: "setContract"; contract: ContractKey }
@@ -1341,8 +1342,8 @@ function CoursesEditorCard({
           Carga permitida por contrato.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2 px-2.5 py-2">
-        <div className="grid gap-2">
+      <CardContent className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-1.5 px-2 py-1.5">
+        <div className="grid gap-1.5">
           <Select disabled={disabled} value={school} onValueChange={setSchool}>
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Escuela" />
@@ -1434,11 +1435,32 @@ function ConfigurationView({
   const [school, setSchool] = useState(schoolOptions[0] ?? "");
   const [customSchool, setCustomSchool] = useState("");
   const [isThesis, setIsThesis] = useState(false);
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogStatusFilter, setCatalogStatusFilter] =
+    useState<CourseStatusFilter>("all");
+  const [catalogSchoolFilter, setCatalogSchoolFilter] = useState("all");
   const selectedSchool = customSchool.trim() || school;
   const activeCount = catalog.filter(
     (course) => course.active !== false,
   ).length;
   const inactiveCount = catalog.length - activeCount;
+  const catalogSchools = Array.from(
+    new Set(catalog.map((course) => course.school)),
+  ).sort((a, b) => a.localeCompare(b));
+  const filteredCatalog = filterCourses(catalog, {
+    query: catalogQuery,
+    schoolFilter: catalogSchoolFilter,
+    statusFilter: catalogStatusFilter,
+  });
+  const catalogFiltersActive =
+    catalogQuery.trim().length > 0 ||
+    catalogStatusFilter !== "all" ||
+    catalogSchoolFilter !== "all";
+  const clearCatalogFilters = () => {
+    setCatalogQuery("");
+    setCatalogStatusFilter("all");
+    setCatalogSchoolFilter("all");
+  };
 
   useEffect(() => {
     if (!school && schoolOptions[0]) {
@@ -1480,7 +1502,7 @@ function ConfigurationView({
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[320px_minmax(0,1fr)]">
       <Card className="min-h-0 overflow-hidden" size="sm">
-        <CardHeader className="border-b">
+        <CardHeader className="border-b px-2.5 py-1.5">
           <CardTitle className="flex items-center gap-2 text-base">
             <Settings2 className="size-4 text-gold" />
             Configuración institucional
@@ -1489,132 +1511,194 @@ function ConfigurationView({
             Periodo académico, escuelas y cursos.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-2.5 px-2.5 py-2">
-          <Field>
-            <FieldLabel>Periodo académico vigente</FieldLabel>
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <Input
-                onChange={(event) => setTerm(event.target.value)}
-                placeholder="Ej. 2026.2"
-                value={term}
-              />
+        <CardContent className="min-h-0 p-0">
+          <ScrollArea scrollFade scrollbarGutter>
+            <div className="grid gap-2 px-2 py-1.5">
+              <Field>
+                <FieldLabel>Periodo académico vigente</FieldLabel>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                  <Input
+                    onChange={(event) => setTerm(event.target.value)}
+                    placeholder="Ej. 2026.2"
+                    value={term}
+                  />
+                  <Button
+                    disabled={term.trim() === academicTerm}
+                    loading={saving}
+                    onClick={handleTermSubmit}
+                    variant="outline"
+                  >
+                    Guardar
+                  </Button>
+                </div>
+              </Field>
+              <Field className="rounded-md border bg-muted/25 p-2">
+                <div className="flex w-full items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <FieldLabel>Cierre de periodo</FieldLabel>
+                    <FieldDescription>
+                      {periodClosed
+                        ? `Cerrado${periodClosedAt ? `: ${periodClosedAt}` : ""}`
+                        : `${approvedCount}/${teacherCount} horarios aprobados.`}
+                    </FieldDescription>
+                  </div>
+                  <Badge variant={periodClosed ? "default" : "secondary"}>
+                    {periodClosed ? "Cerrado" : "Abierto"}
+                  </Badge>
+                </div>
+                <Button
+                  className="w-full"
+                  disabled={saving || (!periodClosed && !canClosePeriod)}
+                  loading={saving}
+                  onClick={() => onSetPeriodClosed(!periodClosed)}
+                  variant={
+                    periodClosed || !canClosePeriod ? "outline" : "default"
+                  }
+                >
+                  {periodClosed
+                    ? "Reabrir periodo"
+                    : canClosePeriod
+                      ? "Cerrar periodo"
+                      : "Faltan aprobaciones"}
+                </Button>
+              </Field>
+              <Separator />
+              <div>
+                <h2 className="font-medium text-sm">Nuevo curso</h2>
+                <p className="text-muted-foreground text-xs">
+                  Disponible para selección docente.
+                </p>
+              </div>
+              <Field>
+                <FieldLabel>Escuela existente</FieldLabel>
+                <Select value={school} onValueChange={setSchool}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Selecciona escuela" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Escuelas activas</SelectLabel>
+                      {schoolOptions.map((item) => (
+                        <SelectItem key={item} value={item}>
+                          {item}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel>Nueva escuela</FieldLabel>
+                <Input
+                  onChange={(event) => setCustomSchool(event.target.value)}
+                  placeholder="Opcional"
+                  value={customSchool}
+                />
+                <FieldDescription>
+                  Si escribes aquí, se usará esta escuela.
+                </FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel>Nombre del curso</FieldLabel>
+                <Input
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Ej. Ingeniería de Software"
+                  value={name}
+                />
+              </Field>
+              <Field className="flex-row items-center justify-between rounded-md border bg-muted/25 p-2">
+                <div>
+                  <FieldLabel>Cuenta como Tesis</FieldLabel>
+                  <FieldDescription>
+                    No consume cupo de cursos.
+                  </FieldDescription>
+                </div>
+                <Switch checked={isThesis} onCheckedChange={setIsThesis} />
+              </Field>
               <Button
-                disabled={term.trim() === academicTerm}
+                disabled={!name.trim() || !selectedSchool}
                 loading={saving}
-                onClick={handleTermSubmit}
-                variant="outline"
+                onClick={handleSubmit}
               >
-                Guardar
+                <Plus data-icon="inline-start" />
+                Guardar curso
               </Button>
             </div>
-          </Field>
-          <Field className="rounded-md border bg-muted/25 p-2.5">
-            <div className="flex w-full items-start justify-between gap-3">
-              <div className="min-w-0">
-                <FieldLabel>Cierre de periodo</FieldLabel>
-                <FieldDescription>
-                  {periodClosed
-                    ? `Cerrado${periodClosedAt ? `: ${periodClosedAt}` : ""}`
-                    : `${approvedCount}/${teacherCount} horarios aprobados.`}
-                </FieldDescription>
-              </div>
-              <Badge variant={periodClosed ? "default" : "secondary"}>
-                {periodClosed ? "Cerrado" : "Abierto"}
-              </Badge>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+      <Card className="min-h-0 overflow-hidden" size="sm">
+        <CardHeader className="grid shrink-0 gap-1.5 border-b px-2.5 py-1.5 xl:grid-cols-[minmax(0,1fr)_minmax(560px,auto)] xl:items-center">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="truncate font-serif text-xl">
+                Configuración de catálogo
+              </CardTitle>
+              <CardDescription className="truncate">
+                Cursos activos disponibles para selección docente.
+              </CardDescription>
             </div>
-            <Button
-              className="w-full"
-              disabled={saving || (!periodClosed && !canClosePeriod)}
-              loading={saving}
-              onClick={() => onSetPeriodClosed(!periodClosed)}
-              variant={periodClosed || !canClosePeriod ? "outline" : "default"}
-            >
-              {periodClosed
-                ? "Reabrir periodo"
-                : canClosePeriod
-                  ? "Cerrar periodo"
-                  : "Faltan aprobaciones"}
-            </Button>
-          </Field>
-          <Separator />
-          <div>
-            <h2 className="font-medium text-sm">Nuevo curso</h2>
-            <p className="text-muted-foreground text-xs">
-              Disponible para selección docente.
-            </p>
+            <Badge variant="secondary">
+              {filteredCatalog.length}/{catalog.length}
+            </Badge>
           </div>
-          <Field>
-            <FieldLabel>Escuela existente</FieldLabel>
-            <Select value={school} onValueChange={setSchool}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Selecciona escuela" />
+          <div className="grid gap-1.5 md:grid-cols-[minmax(180px,1fr)_150px_190px]">
+            <Input
+              aria-label="Buscar curso"
+              onChange={(event) => setCatalogQuery(event.target.value)}
+              placeholder="Buscar curso o escuela"
+              size="sm"
+              type="search"
+              value={catalogQuery}
+            />
+            <Select
+              value={catalogStatusFilter}
+              onValueChange={(value) =>
+                setCatalogStatusFilter(value as CourseStatusFilter)
+              }
+            >
+              <SelectTrigger className="w-full" size="sm">
+                <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Escuelas activas</SelectLabel>
-                  {schoolOptions.map((item) => (
-                    <SelectItem key={item} value={item}>
-                      {item}
+                  <SelectLabel>Estado</SelectLabel>
+                  <SelectItem value="all">Todo estado</SelectItem>
+                  <SelectItem value="active">
+                    Activos ({activeCount})
+                  </SelectItem>
+                  <SelectItem value="suspended">
+                    Suspendidos ({inactiveCount})
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
+              value={catalogSchoolFilter}
+              onValueChange={setCatalogSchoolFilter}
+            >
+              <SelectTrigger className="w-full" size="sm">
+                <SelectValue placeholder="Escuela" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Escuela</SelectLabel>
+                  <SelectItem value="all">Todas las escuelas</SelectItem>
+                  {catalogSchools.map((schoolName) => (
+                    <SelectItem key={schoolName} value={schoolName}>
+                      {schoolName}
                     </SelectItem>
                   ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
-          </Field>
-          <Field>
-            <FieldLabel>Nueva escuela</FieldLabel>
-            <Input
-              onChange={(event) => setCustomSchool(event.target.value)}
-              placeholder="Opcional"
-              value={customSchool}
-            />
-            <FieldDescription>
-              Si escribes aquí, se usará esta escuela.
-            </FieldDescription>
-          </Field>
-          <Field>
-            <FieldLabel>Nombre del curso</FieldLabel>
-            <Input
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Ej. Ingeniería de Software"
-              value={name}
-            />
-          </Field>
-          <Field className="flex-row items-center justify-between rounded-md border bg-muted/25 p-2.5">
-            <div>
-              <FieldLabel>Cuenta como Tesis</FieldLabel>
-              <FieldDescription>No consume cupo de cursos.</FieldDescription>
-            </div>
-            <Switch checked={isThesis} onCheckedChange={setIsThesis} />
-          </Field>
-          <Button
-            disabled={!name.trim() || !selectedSchool}
-            loading={saving}
-            onClick={handleSubmit}
-          >
-            <Plus data-icon="inline-start" />
-            Guardar curso
-          </Button>
-        </CardContent>
-      </Card>
-      <Card className="min-h-0 overflow-hidden" size="sm">
-        <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
-            <CardTitle className="truncate font-serif text-xl">
-              Configuración de catálogo
-            </CardTitle>
-            <CardDescription className="truncate">
-              Cursos activos disponibles para selección docente.
-            </CardDescription>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge variant="default">{activeCount} activos</Badge>
-            <Badge variant="secondary">{inactiveCount} suspendidos</Badge>
           </div>
         </CardHeader>
         <CardContent className="min-h-0 flex-1 p-0">
           <CourseCatalogTable
-            catalog={catalog}
+            catalog={filteredCatalog}
+            clearFilters={clearCatalogFilters}
+            filtersActive={catalogFiltersActive}
             onSetCourseActive={onSetCourseActive}
             saving={saving}
           />
@@ -1626,10 +1710,14 @@ function ConfigurationView({
 
 function CourseCatalogTable({
   catalog,
+  clearFilters,
+  filtersActive,
   onSetCourseActive,
   saving,
 }: {
   catalog: Course[];
+  clearFilters: () => void;
+  filtersActive: boolean;
   onSetCourseActive: (courseId: string, active: boolean) => Promise<void>;
   saving: boolean;
 }) {
@@ -1640,11 +1728,22 @@ function CourseCatalogTable({
           <BookOpen />
         </EmptyMedia>
         <EmptyHeader>
-          <EmptyTitle>Sin cursos configurados</EmptyTitle>
+          <EmptyTitle>
+            {filtersActive ? "Sin coincidencias" : "Sin cursos configurados"}
+          </EmptyTitle>
           <EmptyDescription>
-            Agrega el primer curso institucional.
+            {filtersActive
+              ? "Ajusta búsqueda, estado o escuela para ver más cursos."
+              : "Agrega el primer curso institucional."}
           </EmptyDescription>
         </EmptyHeader>
+        {filtersActive ? (
+          <EmptyContent>
+            <Button onClick={clearFilters} size="sm" variant="outline">
+              Limpiar filtros
+            </Button>
+          </EmptyContent>
+        ) : null}
       </Empty>
     );
   }
@@ -1749,7 +1848,7 @@ function UsersAccessView({
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_300px]">
       <Card className="min-h-0 overflow-hidden" size="sm">
-        <CardHeader className="grid shrink-0 gap-2 border-b px-3 py-2 lg:grid-cols-[minmax(0,1fr)_minmax(460px,auto)] lg:items-center">
+        <CardHeader className="grid shrink-0 gap-1.5 border-b px-2.5 py-1.5 lg:grid-cols-[minmax(0,1fr)_minmax(460px,auto)] lg:items-center">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
               <CardTitle className="truncate font-serif text-xl">
@@ -1763,7 +1862,7 @@ function UsersAccessView({
               {filteredUsers.length}/{users.length}
             </Badge>
           </div>
-          <div className="grid gap-2 md:grid-cols-[minmax(180px,1fr)_160px_160px]">
+          <div className="grid gap-1.5 md:grid-cols-[minmax(180px,1fr)_160px_160px]">
             <Input
               aria-label="Buscar usuario"
               onChange={(event) => setQuery(event.target.value)}
@@ -1822,7 +1921,7 @@ function UsersAccessView({
       </Card>
       <aside className="grid min-h-0 gap-3 xl:grid-rows-[auto_auto_minmax(0,1fr)]">
         <Card size="sm">
-          <CardHeader className="border-b">
+          <CardHeader className="border-b px-2.5 py-1.5">
             <CardTitle className="flex items-center gap-2 text-base">
               <ShieldCheck className="size-4 text-availability" />
               Acceso
@@ -2302,7 +2401,7 @@ function DirectorView({
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_320px]">
       <Card className="min-h-0 overflow-hidden">
-        <CardHeader className="border-b px-2.5 py-1.5">
+        <CardHeader className="grid gap-1 border-b px-2 py-1">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <CardTitle className="truncate text-base">
@@ -2316,7 +2415,7 @@ function DirectorView({
               {teachers.length}/{totalTeacherCount}
             </Badge>
           </div>
-          <div className="mt-1.5 grid gap-1.5">
+          <div className="grid gap-1">
             <Input
               aria-label="Buscar docente"
               onChange={(event) => setTeacherQuery(event.target.value)}
@@ -2346,7 +2445,7 @@ function DirectorView({
               </SelectContent>
             </Select>
           </div>
-          <Field className="mt-1.5 flex-row items-center justify-between gap-2 rounded-md bg-muted/25 px-2 py-1">
+          <Field className="flex-row items-center justify-between gap-2 rounded-md bg-muted/25 px-2 py-0.5">
             <div>
               <FieldLabel className="text-xs">Solo pendientes</FieldLabel>
               <FieldDescription>Oculta aprobados.</FieldDescription>
@@ -2357,7 +2456,7 @@ function DirectorView({
             />
           </Field>
         </CardHeader>
-        <CardContent className="min-h-0 flex-1 p-2">
+        <CardContent className="min-h-0 flex-1 p-1.5">
           <ScrollArea scrollFade scrollbarGutter>
             <div className="space-y-2">
               {teachers.length ? (
@@ -2762,13 +2861,13 @@ function TeacherButton({
   return (
     <button
       className={cn(
-        "flex h-[68px] w-full items-center justify-between gap-3 rounded-lg border px-3 text-left text-sm transition-colors",
+        "flex h-[62px] w-full items-center justify-between gap-2 rounded-lg border px-2.5 text-left text-sm transition-colors",
         selected ? "border-primary bg-accent" : "bg-card hover:bg-accent/60",
       )}
       onClick={onClick}
       type="button"
     >
-      <span className="flex min-w-0 items-center gap-3">
+      <span className="flex min-w-0 items-center gap-2.5">
         <span className="text-muted-foreground tabular-nums">{index + 1}</span>
         <span className="min-w-0">
           <span className="block truncate font-medium">{teacher.name}</span>
@@ -3082,6 +3181,46 @@ function filterUsers(
       user.school,
       user.teacherStatus ? statusLabel(user.teacherStatus) : "No aplica",
       user.onboardingComplete ? "Completo" : "Pendiente",
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedQuery);
+  });
+}
+
+function filterCourses(
+  courses: Course[],
+  {
+    query,
+    schoolFilter,
+    statusFilter,
+  }: {
+    query: string;
+    schoolFilter: string;
+    statusFilter: CourseStatusFilter;
+  },
+) {
+  const normalizedQuery = query.trim().toLowerCase();
+  return courses.filter((course) => {
+    const active = course.active !== false;
+    if (statusFilter === "active" && !active) {
+      return false;
+    }
+    if (statusFilter === "suspended" && active) {
+      return false;
+    }
+    if (schoolFilter !== "all" && course.school !== schoolFilter) {
+      return false;
+    }
+    if (!normalizedQuery) {
+      return true;
+    }
+    return [
+      course.id,
+      course.name,
+      course.school,
+      active ? "Activo" : "Suspendido",
+      course.isThesis ? "Tesis" : "",
     ]
       .join(" ")
       .toLowerCase()
