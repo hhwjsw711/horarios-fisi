@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Sun,
   Trash2,
+  UserCog,
   Users,
 } from "lucide-react";
 import Image from "next/image";
@@ -137,10 +138,11 @@ import type {
   Onboarding,
   ScheduleEvent,
   SchedulePayload,
+  ScheduleUser,
 } from "@/lib/schedule-db";
 import { cn } from "@/lib/utils";
 
-type ViewKey = "docente" | "direccion" | "configuracion";
+type ViewKey = "docente" | "direccion" | "configuracion" | "usuarios";
 
 type Validation = {
   selectedHours: number;
@@ -158,6 +160,12 @@ type ScheduleAction =
   | { action: "createCourse"; name: string; school: string; isThesis: boolean }
   | { action: "setCourseActive"; courseId: string; active: boolean }
   | { action: "setAcademicTerm"; academicTerm: string }
+  | {
+      action: "setUserAccess";
+      userId: string;
+      role: AppRole;
+      school: string;
+    }
   | { action: "submit" };
 
 type ApiError = {
@@ -426,6 +434,23 @@ export function ScheduleApp({
     return payload;
   };
 
+  const handleSetUserAccess = async (
+    userId: string,
+    role: AppRole,
+    schoolValue: string,
+  ) => {
+    const payload = await request({
+      action: "setUserAccess",
+      userId,
+      role,
+      school: schoolValue,
+    });
+    if (payload) {
+      toast.success("Acceso actualizado.");
+    }
+    return payload;
+  };
+
   return (
     <ScheduleFrame
       academicTerm={academicTerm}
@@ -449,6 +474,14 @@ export function ScheduleApp({
           saving={saving}
           schools={schoolOptions}
         />
+      ) : view === "usuarios" && canUseDirection ? (
+        <UsersAccessView
+          currentUserId={data.currentUserId}
+          onSetUserAccess={handleSetUserAccess}
+          saving={saving}
+          schools={schoolOptions}
+          users={data.users}
+        />
       ) : view === "direccion" && canUseDirection ? (
         <DirectorView
           handleExportPdf={handleExportPdf}
@@ -466,7 +499,9 @@ export function ScheduleApp({
           teachers={filteredTeachers}
           validation={selectedValidation}
         />
-      ) : view === "direccion" || view === "configuracion" ? (
+      ) : view === "direccion" ||
+        view === "configuracion" ||
+        view === "usuarios" ? (
         <LockedDirectionView />
       ) : (
         <DocenteView
@@ -722,17 +757,30 @@ function AppSidebar({
               ) : null}
             </SidebarMenuItem>
             {canUseDirection ? (
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
-                  isActive={selectedView === "configuracion"}
-                  render={<Link href="/direccion/configuracion" />}
-                  tooltip="Configuración"
-                >
-                  <Settings2 />
-                  <span>Configuración</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              <>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
+                    isActive={selectedView === "usuarios"}
+                    render={<Link href="/direccion/usuarios" />}
+                    tooltip="Usuarios"
+                  >
+                    <UserCog />
+                    <span>Usuarios</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
+                    isActive={selectedView === "configuracion"}
+                    render={<Link href="/direccion/configuracion" />}
+                    tooltip="Configuración"
+                  >
+                    <Settings2 />
+                    <span>Configuración</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </>
             ) : null}
           </SidebarMenu>
         </SidebarGroup>
@@ -1455,6 +1503,237 @@ function CourseCatalogTable({
                       onSetCourseActive(course.id, checked)
                     }
                   />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </ScrollArea>
+  );
+}
+
+function UsersAccessView({
+  currentUserId,
+  onSetUserAccess,
+  saving,
+  schools,
+  users,
+}: {
+  currentUserId: string;
+  onSetUserAccess: (
+    userId: string,
+    role: AppRole,
+    school: string,
+  ) => Promise<SchedulePayload | null>;
+  saving: boolean;
+  schools: string[];
+  users: ScheduleUser[];
+}) {
+  const directionCount = users.filter(
+    (user) => user.role === "direccion",
+  ).length;
+  const teacherCount = users.filter((user) => user.role === "docente").length;
+  const pendingOnboarding = users.filter(
+    (user) => !user.onboardingComplete,
+  ).length;
+
+  return (
+    <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <Card className="min-h-0 overflow-hidden" size="sm">
+        <CardHeader className="flex shrink-0 flex-col gap-2 border-b md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <CardTitle className="truncate font-serif text-xl">
+              Usuarios institucionales
+            </CardTitle>
+            <CardDescription className="truncate">
+              Roles, escuelas y estado de onboarding.
+            </CardDescription>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Badge variant="default">{directionCount} dirección</Badge>
+            <Badge variant="secondary">{teacherCount} docentes</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="min-h-0 flex-1 p-0">
+          <UsersAccessTable
+            currentUserId={currentUserId}
+            onSetUserAccess={onSetUserAccess}
+            saving={saving}
+            schools={schools}
+            users={users}
+          />
+        </CardContent>
+      </Card>
+      <aside className="grid min-h-0 gap-3 xl:grid-rows-[auto_auto_minmax(0,1fr)]">
+        <Card size="sm">
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="size-4 text-availability" />
+              Acceso
+            </CardTitle>
+            <CardDescription>Resumen operativo.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-3 gap-2 px-2.5 py-2">
+            <StatusMetric label="Dirección" value={String(directionCount)} />
+            <StatusMetric label="Docentes" value={String(teacherCount)} />
+            <StatusMetric
+              label="Pendientes"
+              value={String(pendingOnboarding)}
+            />
+          </CardContent>
+        </Card>
+        <Alert variant={directionCount > 0 ? "default" : "warning"}>
+          <Info />
+          <AlertTitle>Regla de seguridad</AlertTitle>
+          <AlertDescription>
+            El sistema mantiene al menos un usuario con acceso Dirección.
+          </AlertDescription>
+        </Alert>
+      </aside>
+    </section>
+  );
+}
+
+function UsersAccessTable({
+  currentUserId,
+  onSetUserAccess,
+  saving,
+  schools,
+  users,
+}: {
+  currentUserId: string;
+  onSetUserAccess: (
+    userId: string,
+    role: AppRole,
+    school: string,
+  ) => Promise<SchedulePayload | null>;
+  saving: boolean;
+  schools: string[];
+  users: ScheduleUser[];
+}) {
+  if (!users.length) {
+    return (
+      <Empty className="h-full py-10">
+        <EmptyMedia variant="icon">
+          <UserCog />
+        </EmptyMedia>
+        <EmptyHeader>
+          <EmptyTitle>Sin usuarios</EmptyTitle>
+          <EmptyDescription>
+            Los usuarios aparecerán después de iniciar sesión.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
+  return (
+    <ScrollArea scrollbarGutter>
+      <Table className="text-sm">
+        <TableHeader className="sticky top-0 z-10 bg-card">
+          <TableRow className="h-9">
+            <TableHead className="h-9 min-w-[260px] px-2">Usuario</TableHead>
+            <TableHead className="h-9 w-40 px-2">Rol</TableHead>
+            <TableHead className="h-9 w-56 px-2">Escuela</TableHead>
+            <TableHead className="h-9 w-32 px-2">Onboarding</TableHead>
+            <TableHead className="h-9 w-32 px-2">Horario</TableHead>
+            <TableHead className="h-9 w-36 px-2 text-right">
+              Actualizado
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {users.map((user) => {
+            const isSelf = user.clerkUserId === currentUserId;
+            return (
+              <TableRow className="h-12" key={user.clerkUserId}>
+                <TableCell className="px-2 py-1">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">
+                      {user.name}
+                      {isSelf ? (
+                        <Badge variant="secondary" className="ml-2">
+                          Tú
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="truncate text-muted-foreground text-xs">
+                      {user.email}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="px-2 py-1">
+                  <Select
+                    disabled={saving || isSelf}
+                    value={user.role}
+                    onValueChange={(role) =>
+                      onSetUserAccess(
+                        user.clerkUserId,
+                        role as AppRole,
+                        user.school,
+                      )
+                    }
+                  >
+                    <SelectTrigger className="w-full" size="sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectLabel>Rol</SelectLabel>
+                        <SelectItem value="docente">Docente</SelectItem>
+                        <SelectItem value="direccion">Dirección</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell className="px-2 py-1">
+                  <Select
+                    disabled={saving}
+                    value={user.school}
+                    onValueChange={(school) =>
+                      onSetUserAccess(user.clerkUserId, user.role, school)
+                    }
+                  >
+                    <SelectTrigger className="w-full" size="sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectLabel>Escuela</SelectLabel>
+                        {schools.map((school) => (
+                          <SelectItem key={school} value={school}>
+                            {school}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell className="px-2 py-1">
+                  <Badge
+                    variant={user.onboardingComplete ? "default" : "secondary"}
+                  >
+                    {user.onboardingComplete ? "Completo" : "Pendiente"}
+                  </Badge>
+                </TableCell>
+                <TableCell className="px-2 py-1">
+                  {user.teacherStatus ? (
+                    <Badge
+                      variant={
+                        user.teacherStatus === "enviado"
+                          ? "default"
+                          : "secondary"
+                      }
+                    >
+                      {statusLabel(user.teacherStatus)}
+                    </Badge>
+                  ) : (
+                    <span className="text-muted-foreground">No aplica</span>
+                  )}
+                </TableCell>
+                <TableCell className="px-2 py-1 text-right text-muted-foreground text-xs tabular-nums">
+                  {formatEventDate(user.updatedAt)}
                 </TableCell>
               </TableRow>
             );
@@ -2233,6 +2512,9 @@ function routeLabel(view: ViewKey) {
   if (view === "configuracion") {
     return "Configuración";
   }
+  if (view === "usuarios") {
+    return "Usuarios";
+  }
   return view === "direccion" ? "Dirección" : "Docente";
 }
 
@@ -2245,6 +2527,7 @@ function eventLabel(eventType: string) {
     "teacher.course_removed": "Curso retirado",
     "teacher.submitted_schedule": "Horario enviado",
     "onboarding.completed": "Perfil configurado",
+    "access.user_updated": "Acceso actualizado",
   };
   return labels[eventType] ?? eventType;
 }

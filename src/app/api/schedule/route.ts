@@ -15,6 +15,7 @@ import {
   setAvailability,
   setContract,
   setCourseActive,
+  setUserAccess,
   submitSchedule,
 } from "@/lib/schedule-db";
 
@@ -117,6 +118,18 @@ export async function PATCH(request: NextRequest) {
       }
       return NextResponse.json(
         await setAcademicTerm(identity, body.academicTerm),
+      );
+    }
+    if (body.action === "setUserAccess") {
+      if (
+        typeof body.userId !== "string" ||
+        !isRole(body.role) ||
+        typeof body.school !== "string"
+      ) {
+        return NextResponse.json({ error: "Invalid user" }, { status: 400 });
+      }
+      return NextResponse.json(
+        await setUserAccess(identity, body.userId, body.role, body.school),
       );
     }
     if (body.action === "submit") {

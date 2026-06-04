@@ -30,8 +30,10 @@ export type ScheduleIdentity = {
 };
 
 export type SchedulePayload = {
+  currentUserId: string;
   profile: TeacherProfile;
   teachers: TeacherProfile[];
+  users: ScheduleUser[];
   catalog: Course[];
   schools: string[];
   settings: ScheduleSettings;
@@ -55,6 +57,18 @@ export type ScheduleEvent = {
   createdAt: string;
 };
 
+export type ScheduleUser = {
+  clerkUserId: string;
+  email: string;
+  name: string;
+  role: AppRole;
+  school: string;
+  onboardingComplete: boolean;
+  teacherStatus: TeacherProfile["status"] | null;
+  updatedAt: string;
+  createdAt: string;
+};
+
 export class ScheduleError extends Error {
   status: number;
 
@@ -71,6 +85,9 @@ type AppUserRow = {
   role: AppRole;
   school: string;
   code: string;
+  created_at?: string;
+  updated_at?: string;
+  teacher_status?: TeacherProfile["status"] | null;
 };
 
 type TeacherRow = {
@@ -281,13 +298,16 @@ export async function getSchedulePayload(
   const schoolOptions = await readSchools();
   const settings = await readSettings();
   const teachers = user.role === "direccion" ? await readTeachers() : [profile];
+  const users = user.role === "direccion" ? await readUsers() : [];
   const events =
     user.role === "direccion"
       ? await readScheduleEvents()
       : await readScheduleEvents(profile.id);
   return {
+    currentUserId: identity.clerkUserId,
     profile,
     teachers,
+    users,
     catalog,
     schools: schoolOptions,
     settings,
@@ -506,6 +526,59 @@ export async function setAcademicTerm(
   );
   await recordEvent(identity, "settings", "settings.academic_term_changed", {
     academicTerm: normalizedTerm,
+  });
+  return getSchedulePayload(identity);
+}
+
+export async function setUserAccess(
+  identity: ScheduleIdentity,
+  targetUserId: string,
+  role: AppRole,
+  school: string,
+) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
+  await ensureDirection(identity);
+  const schools = await readSchools();
+  if (!schools.includes(school)) {
+    throw new ScheduleError("Escuela no válida.");
+  }
+  const sql = getSql();
+  const rows = (await sql.query(
+    "select clerk_user_id, role from app_users where clerk_user_id = $1 limit 1",
+    [targetUserId],
+  )) as Pick<AppUserRow, "clerk_user_id" | "role">[];
+  const target = rows[0];
+  if (!target) {
+    throw new ScheduleError("Usuario no encontrado.", 404);
+  }
+  if (targetUserId === identity.clerkUserId && role !== "direccion") {
+    throw new ScheduleError("No puedes retirar tu propio acceso.", 403);
+  }
+  if (target.role === "direccion" && role !== "direccion") {
+    const directionRows = (await sql.query(
+      "select count(*)::int as count from app_users where role = 'direccion' and clerk_user_id <> $1",
+      [targetUserId],
+    )) as { count: number }[];
+    if (Number(directionRows[0]?.count ?? 0) === 0) {
+      throw new ScheduleError("Debe quedar al menos un usuario Dirección.");
+    }
+  }
+  await sql.query(
+    `
+      update app_users
+      set role = $2,
+          school = $3,
+          code = case when $2 = 'direccion' and code = '' then 'DIRECCION' else code end,
+          updated_at = now()
+      where clerk_user_id = $1
+    `,
+    [targetUserId, role, school],
+  );
+  await recordEvent(identity, targetUserId, "access.user_updated", {
+    role,
+    school,
   });
   return getSchedulePayload(identity);
 }
@@ -780,6 +853,38 @@ async function readScheduleEvents(teacherId?: string) {
   }));
 }
 
+async function readUsers(): Promise<ScheduleUser[]> {
+  const sql = getSql();
+  const rows = (await sql.query(`
+    select
+      au.clerk_user_id,
+      au.email,
+      au.name,
+      au.role,
+      au.school,
+      au.code,
+      au.created_at::text,
+      au.updated_at::text,
+      tp.status as teacher_status
+    from app_users au
+    left join teacher_profiles tp on tp.clerk_user_id = au.clerk_user_id
+    order by
+      case au.role when 'direccion' then 0 else 1 end,
+      au.name asc
+  `)) as AppUserRow[];
+  return rows.map((row) => ({
+    clerkUserId: row.clerk_user_id,
+    email: row.email,
+    name: row.name,
+    role: row.role,
+    school: row.school,
+    onboardingComplete: row.code.trim().length > 0,
+    teacherStatus: row.teacher_status ?? null,
+    createdAt: row.created_at ?? "",
+    updatedAt: row.updated_at ?? "",
+  }));
+}
+
 async function readSchools() {
   const sql = getSql();
   const rows = (await sql.query(
@@ -820,8 +925,44 @@ function slugifyCourseId(value: string) {
 function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
   const profile = seedTeachers[0];
   return {
+    currentUserId: identity.clerkUserId,
     profile,
     teachers: seedTeachers,
+    users: [
+      {
+        clerkUserId: "local-preview",
+        email: "preview@unmsm.edu.pe",
+        name: identity.name,
+        role: "direccion",
+        school: "Ing. de Sistemas",
+        onboardingComplete: true,
+        teacherStatus: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        clerkUserId: seedTeachers[0].id,
+        email: seedTeachers[0].email,
+        name: seedTeachers[0].name,
+        role: "docente",
+        school: "Ing. de Sistemas",
+        onboardingComplete: true,
+        teacherStatus: seedTeachers[0].status,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        clerkUserId: seedTeachers[2].id,
+        email: seedTeachers[2].email,
+        name: seedTeachers[2].name,
+        role: "docente",
+        school: "Contabilidad",
+        onboardingComplete: true,
+        teacherStatus: seedTeachers[2].status,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
     catalog: courseCatalog,
     schools,
     settings: {
