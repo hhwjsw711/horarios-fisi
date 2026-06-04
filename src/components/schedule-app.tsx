@@ -1415,7 +1415,7 @@ function CoursesEditorCard({
                   <SelectLabel>Curso</SelectLabel>
                   {catalogForSchool.map((course) => (
                     <SelectItem key={course.id} value={course.id}>
-                      {course.name}
+                      {courseLabel(course)}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -1806,12 +1806,15 @@ function CourseCatalogTable({
           {catalog.map((course, index) => {
             const active = course.active !== false;
             return (
-              <TableRow className="h-10" key={course.id}>
+              <TableRow className="h-12" key={course.id}>
                 <TableCell className="px-2 py-1 text-muted-foreground tabular-nums">
                   {index + 1}
                 </TableCell>
-                <TableCell className="px-2 py-1 font-medium">
-                  {course.name}
+                <TableCell className="px-2 py-1">
+                  <div className="font-medium">{course.name}</div>
+                  <div className="text-muted-foreground text-xs">
+                    {courseMeta(course)}
+                  </div>
                   {course.isThesis ? (
                     <Badge variant="secondary" className="ml-2">
                       Tesis
@@ -3101,7 +3104,7 @@ function CoursesTable({
         </TableHeader>
         <TableBody>
           {courses.map((course, index) => (
-            <TableRow className={compact ? "h-8" : "h-10"} key={course.id}>
+            <TableRow className={compact ? "h-11" : "h-12"} key={course.id}>
               <TableCell
                 className={cn(
                   "text-muted-foreground tabular-nums",
@@ -3113,7 +3116,10 @@ function CoursesTable({
               <TableCell
                 className={cn("font-medium", compact && "px-1.5 py-1")}
               >
-                {course.name}
+                <span className="block">{course.name}</span>
+                <span className="block text-muted-foreground text-[11px]">
+                  {courseMeta(course)}
+                </span>
                 {course.isThesis ? (
                   <Badge variant="secondary" className="ml-2">
                     Tesis
@@ -3259,8 +3265,11 @@ function filterCourses(
     }
     return [
       course.id,
+      course.code,
       course.name,
       course.school,
+      course.cycle ? `Ciclo ${course.cycle}` : "",
+      course.credits ? `${course.credits} créditos` : "",
       active ? "Activo" : "Suspendido",
       course.isThesis ? "Tesis" : "",
     ]
@@ -3268,6 +3277,20 @@ function filterCourses(
       .toLowerCase()
       .includes(normalizedQuery);
   });
+}
+
+function courseLabel(course: Course) {
+  return course.code ? `${course.code} · ${course.name}` : course.name;
+}
+
+function courseMeta(course: Course) {
+  return [
+    course.code,
+    course.cycle ? `Ciclo ${course.cycle}` : "",
+    course.credits ? `${course.credits} cr.` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function statusLabel(status: TeacherProfile["status"]) {

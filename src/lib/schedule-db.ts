@@ -72,6 +72,12 @@ export type ScheduleUser = {
   createdAt: string;
 };
 
+export type ClerkUserSyncInput = {
+  clerkUserId: string;
+  email: string;
+  name: string;
+};
+
 export class ScheduleError extends Error {
   status: number;
 
@@ -95,10 +101,13 @@ type AppUserRow = {
 
 type TeacherRow = {
   id: string;
+  teacher_code: string | null;
   name: string;
   email: string;
   contract: ContractKey;
   status: TeacherProfile["status"];
+  category: string | null;
+  academic_degree: string | null;
   review_note: string;
   submitted_at: string | null;
   approved_at: string | null;
@@ -107,9 +116,14 @@ type TeacherRow = {
 
 type CourseRow = {
   id: string;
+  code: string | null;
   name: string;
   school: string;
   active: boolean;
+  cycle: number | null;
+  credits: number | null;
+  course_type: string | null;
+  curriculum: string | null;
   is_thesis: boolean;
 };
 
@@ -224,6 +238,15 @@ export async function ensureScheduleSchema() {
     "alter table teacher_profiles add column if not exists approved_at text",
   );
   await sql.query(
+    "alter table teacher_profiles add column if not exists teacher_code text",
+  );
+  await sql.query(
+    "alter table teacher_profiles add column if not exists category text",
+  );
+  await sql.query(
+    "alter table teacher_profiles add column if not exists academic_degree text",
+  );
+  await sql.query(
     "alter table teacher_profiles drop constraint if exists teacher_profiles_status_check",
   );
   await sql.query(
@@ -231,6 +254,15 @@ export async function ensureScheduleSchema() {
   );
   await sql.query(
     "alter table courses add column if not exists active boolean not null default true",
+  );
+  await sql.query("alter table courses add column if not exists code text");
+  await sql.query("alter table courses add column if not exists cycle int");
+  await sql.query("alter table courses add column if not exists credits int");
+  await sql.query(
+    "alter table courses add column if not exists course_type text",
+  );
+  await sql.query(
+    "alter table courses add column if not exists curriculum text",
   );
   await sql.query(
     "insert into app_settings (key, value) values ('academic_term', $1) on conflict (key) do nothing",
@@ -282,14 +314,29 @@ export async function seedCourseCatalog() {
   for (const course of courseCatalog) {
     await sql.query(
       `
-        insert into courses (id, name, school, is_thesis)
-        values ($1, $2, $3, $4)
+        insert into courses (id, code, name, school, is_thesis, cycle, credits, course_type, curriculum)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         on conflict (id) do update set
+          code = excluded.code,
           name = excluded.name,
           school = excluded.school,
-          is_thesis = excluded.is_thesis
+          is_thesis = excluded.is_thesis,
+          cycle = excluded.cycle,
+          credits = excluded.credits,
+          course_type = excluded.course_type,
+          curriculum = excluded.curriculum
       `,
-      [course.id, course.name, course.school, Boolean(course.isThesis)],
+      [
+        course.id,
+        course.code ?? course.id,
+        course.name,
+        course.school,
+        Boolean(course.isThesis),
+        course.cycle ?? null,
+        course.credits ?? null,
+        course.courseType ?? null,
+        course.curriculum ?? null,
+      ],
     );
   }
 }
@@ -405,6 +452,66 @@ export async function completeOnboarding(
     school: validated.school,
   });
   return getSchedulePayload(identity);
+}
+
+export async function syncClerkUser(input: ClerkUserSyncInput) {
+  await ensureSeeded();
+  const sql = getSql();
+  const officialRows = (await sql.query(
+    `
+      select teacher_code
+      from teacher_profiles
+      where lower(email) = lower($1)
+      limit 1
+    `,
+    [input.email],
+  )) as { teacher_code: string | null }[];
+  const teacherCode = officialRows[0]?.teacher_code?.trim() ?? "";
+  const rows = (await sql.query(
+    `
+      insert into app_users (clerk_user_id, email, name, school, code)
+      values ($1, $2, $3, 'Ing. de Sistemas', $4)
+      on conflict (clerk_user_id) do update set
+        email = excluded.email,
+        name = excluded.name,
+        code = case
+          when app_users.code = '' and excluded.code <> '' then excluded.code
+          else app_users.code
+        end,
+        updated_at = case
+          when app_users.email is distinct from excluded.email
+            or app_users.name is distinct from excluded.name
+            or (app_users.code = '' and excluded.code <> '')
+          then now()
+          else app_users.updated_at
+        end
+      returning clerk_user_id
+    `,
+    [input.clerkUserId, input.email, input.name, teacherCode],
+  )) as { clerk_user_id: string }[];
+  await sql.query(
+    `
+      update teacher_profiles
+      set clerk_user_id = $1,
+          updated_at = case
+            when clerk_user_id is distinct from $1 then now()
+            else updated_at
+          end
+      where lower(email) = lower($2)
+        and (clerk_user_id is null or clerk_user_id = $1)
+    `,
+    [input.clerkUserId, input.email],
+  );
+  return rows[0];
+}
+
+export async function deleteClerkUser(clerkUserId: string) {
+  await ensureScheduleSchema();
+  const sql = getSql();
+  await sql.query("delete from app_users where clerk_user_id = $1", [
+    clerkUserId,
+  ]);
+  return { clerkUserId };
 }
 
 export async function setContract(
@@ -898,16 +1005,21 @@ async function readCourseCatalog() {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      select id, name, school, active, is_thesis
+      select id, code, name, school, active, cycle, credits, course_type, curriculum, is_thesis
       from courses
       order by active desc, school asc, name asc
     `,
   )) as CourseRow[];
   return rows.map((course) => ({
     id: course.id,
+    code: course.code ?? undefined,
     name: course.name,
     school: course.school,
     active: course.active,
+    cycle: course.cycle,
+    credits: course.credits,
+    courseType: course.course_type,
+    curriculum: course.curriculum,
     isThesis: course.is_thesis,
   }));
 }
@@ -916,7 +1028,7 @@ async function readCourse(id: string) {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      select id, name, school, active, is_thesis
+      select id, code, name, school, active, cycle, credits, course_type, curriculum, is_thesis
       from courses
       where id = $1 and active = true
       limit 1
@@ -1153,6 +1265,23 @@ async function ensureTeacherProfile(
     return seedTeachers[0];
   }
   const sql = getSql();
+  const officialRows = (await sql.query(
+    `
+      update teacher_profiles
+      set clerk_user_id = $1,
+          updated_at = case
+            when clerk_user_id is distinct from $1 then now()
+            else updated_at
+          end
+      where lower(email) = lower($2)
+        and (clerk_user_id is null or clerk_user_id = $1)
+      returning id
+    `,
+    [identity.clerkUserId, identity.email],
+  )) as { id: string }[];
+  if (officialRows[0]) {
+    return readTeacher(officialRows[0].id);
+  }
   await sql.query(
     `
       insert into teacher_profiles (id, clerk_user_id, name, email, contract, status)
@@ -1178,15 +1307,15 @@ async function getProfileId(identity: ScheduleIdentity) {
     return "me";
   }
   await ensureUser(identity);
-  await ensureTeacherProfile(identity.clerkUserId, identity);
-  return identity.clerkUserId;
+  const profile = await ensureTeacherProfile(identity.clerkUserId, identity);
+  return profile.id;
 }
 
 async function readTeachers() {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      select tp.id, tp.name, tp.email, tp.contract, tp.status, tp.review_note, tp.submitted_at, tp.approved_at, tp.updated_at::text
+      select tp.id, tp.teacher_code, tp.name, tp.email, tp.category, tp.academic_degree, tp.contract, tp.status, tp.review_note, tp.submitted_at, tp.approved_at, tp.updated_at::text
       from teacher_profiles tp
       left join app_users au on au.clerk_user_id = tp.clerk_user_id
       where coalesce(au.role, 'docente') = 'docente'
@@ -1207,7 +1336,7 @@ async function readTeacher(id: string) {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      select id, name, email, contract, status, review_note, submitted_at, approved_at, updated_at::text
+      select id, teacher_code, name, email, category, academic_degree, contract, status, review_note, submitted_at, approved_at, updated_at::text
       from teacher_profiles
       where id = $1
       limit 1
@@ -1224,7 +1353,7 @@ async function inflateTeacher(row: TeacherRow): Promise<TeacherProfile> {
   const sql = getSql();
   const courseRows = (await sql.query(
     `
-      select c.id, c.name, c.school, c.is_thesis
+      select c.id, c.code, c.name, c.school, c.cycle, c.credits, c.course_type, c.curriculum, c.is_thesis
       from teacher_courses tc
       join courses c on c.id = tc.course_id
       where tc.teacher_id = $1
@@ -1243,8 +1372,11 @@ async function inflateTeacher(row: TeacherRow): Promise<TeacherProfile> {
   )) as AvailabilityRow[];
   return {
     id: row.id,
+    teacherCode: row.teacher_code ?? undefined,
     name: row.name,
     email: row.email,
+    category: row.category ?? undefined,
+    academicDegree: row.academic_degree ?? undefined,
     contract: row.contract,
     status: row.status,
     reviewNote: row.review_note || undefined,
@@ -1253,8 +1385,13 @@ async function inflateTeacher(row: TeacherRow): Promise<TeacherProfile> {
     updatedAt: row.updated_at ?? undefined,
     courses: courseRows.map((course) => ({
       id: course.id,
+      code: course.code ?? undefined,
       name: course.name,
       school: course.school,
+      cycle: course.cycle,
+      credits: course.credits,
+      courseType: course.course_type,
+      curriculum: course.curriculum,
       isThesis: course.is_thesis,
     })),
     availability: availabilityRows.map((item) =>

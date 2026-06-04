@@ -10,16 +10,24 @@ export type ContractKey = "full" | "partial20" | "partial10";
 
 export type Course = {
   id: string;
+  code?: string;
   name: string;
   school: string;
   active?: boolean;
+  cycle?: number | null;
+  credits?: number | null;
+  courseType?: string | null;
+  curriculum?: string | null;
   isThesis?: boolean;
 };
 
 export type TeacherProfile = {
   id: string;
+  teacherCode?: string;
   name: string;
   email: string;
+  category?: string;
+  academicDegree?: string;
   contract: ContractKey;
   status: "enviado" | "borrador" | "observado" | "aprobado";
   courses: Course[];

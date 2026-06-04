@@ -13,6 +13,8 @@
     "test": "bun test",
     "check": "bun run lint && bun run test && bun run build",
     "db:migrate": "bun scripts/migrate.ts",
+    "db:import:fisi": "bun scripts/import-fisi.ts",
+    "clerk:backfill:fisi": "bun scripts/backfill-clerk-fisi-users.ts",
     "smoke": "bun scripts/smoke.ts",
     "start": "next start",
     "lint": "biome check",

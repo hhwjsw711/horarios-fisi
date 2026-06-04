@@ -14,11 +14,12 @@ const isDevelopmentBypassRoute = createRouteMatcher([
 ]);
 
 const isScheduleApiRoute = createRouteMatcher(["/api/schedule(.*)"]);
+const isWebhookRoute = createRouteMatcher(["/api/webhooks(.*)"]);
 const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)"]);
 
 const clerkProxy = clerkMiddleware(
   async (auth, request) => {
-    if (isScheduleApiRoute(request)) {
+    if (isScheduleApiRoute(request) || isWebhookRoute(request)) {
       return NextResponse.next();
     }
     if (!isPublicRoute(request)) {
