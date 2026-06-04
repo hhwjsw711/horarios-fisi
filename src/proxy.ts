@@ -6,13 +6,14 @@ import {
 } from "next/server";
 
 const isDemoRoute = createRouteMatcher(["/demo(.*)"]);
-
-const isPublicRoute = createRouteMatcher([
-  "/",
-  "/demo(.*)",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
+const isDevelopmentBypassRoute = createRouteMatcher([
+  "/docente(.*)",
+  "/direccion(.*)",
+  "/onboarding(.*)",
+  "/api/schedule(.*)",
 ]);
+
+const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)"]);
 
 const clerkProxy = clerkMiddleware(
   async (auth, request) => {
@@ -29,6 +30,12 @@ const clerkProxy = clerkMiddleware(
 
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
   if (isDemoRoute(request)) {
+    return NextResponse.next();
+  }
+  if (
+    process.env.NODE_ENV !== "production" &&
+    isDevelopmentBypassRoute(request)
+  ) {
     return NextResponse.next();
   }
   return clerkProxy(request, event);

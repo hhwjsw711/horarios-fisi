@@ -1,10 +1,11 @@
-import { Show } from "@clerk/nextjs";
-import { ScheduleApp, SignedOutShell } from "@/components/schedule-app";
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+import { SignedOutShell } from "@/components/schedule-app";
 
-export default function Home() {
-  return (
-    <Show when="signed-in" fallback={<SignedOutShell />}>
-      <ScheduleApp />
-    </Show>
-  );
+export default async function Home() {
+  const { userId } = await auth();
+  if (userId) {
+    redirect("/docente");
+  }
+  return <SignedOutShell />;
 }
