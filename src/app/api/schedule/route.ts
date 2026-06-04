@@ -22,6 +22,7 @@ import {
   setUserAccess,
   submitSchedule,
   unassignTeacherCourse,
+  validateUserAccessChange,
 } from "@/lib/schedule-db";
 
 export async function GET(request: NextRequest) {
@@ -161,14 +162,18 @@ export async function PATCH(request: NextRequest) {
       ) {
         return NextResponse.json({ error: "Invalid user" }, { status: 400 });
       }
-      const payload = await setUserAccess(
-        identity,
-        body.userId,
-        body.role,
-        body.school,
+      if (!identity.preview) {
+        await validateUserAccessChange(
+          identity,
+          body.userId,
+          body.role,
+          body.school,
+        );
+        await updateClerkRole(body.userId, body.role);
+      }
+      return NextResponse.json(
+        await setUserAccess(identity, body.userId, body.role, body.school),
       );
-      await updateClerkRole(body.userId, body.role);
-      return NextResponse.json(payload);
     }
     if (body.action === "setPeriodClosed") {
       return NextResponse.json(
@@ -211,10 +216,14 @@ function isContractKey(value: unknown): value is ContractKey {
 }
 
 async function updateClerkRole(userId: string, role: AppRole) {
-  const client = await clerkClient();
-  await client.users.updateUserMetadata(userId, {
-    publicMetadata: { role },
-  });
+  try {
+    const client = await clerkClient();
+    await client.users.updateUserMetadata(userId, {
+      publicMetadata: { role },
+    });
+  } catch {
+    throw new ScheduleError("No se pudo actualizar el rol en Clerk.", 502);
+  }
 }
 
 async function resolveIdentity(

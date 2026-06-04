@@ -819,9 +819,42 @@ export async function setUserAccess(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
+  await validateUserAccessChange(identity, targetUserId, role, school);
+  const sql = getSql();
+  await sql.query(
+    `
+      update app_users
+      set role = $2,
+          school = $3,
+          code = case
+            when $2 = 'admin' and code = '' then 'ADMIN'
+            when $2 = 'direccion' and code = '' then 'DIRECCION'
+            else code
+          end,
+          updated_at = now()
+      where clerk_user_id = $1
+    `,
+    [targetUserId, role, school],
+  );
+  await recordEvent(identity, targetUserId, "access.user_updated", {
+    role,
+    school,
+  });
+  return getSchedulePayload(identity);
+}
+
+export async function validateUserAccessChange(
+  identity: ScheduleIdentity,
+  targetUserId: string,
+  role: AppRole,
+  school: string,
+) {
+  if (identity.preview) {
+    return;
+  }
   await ensureAdmin(identity);
-  const schools = await readSchools();
-  if (!schools.includes(school)) {
+  const schoolOptions = await readSchools();
+  if (!schoolOptions.includes(school)) {
     throw new ScheduleError("Escuela no válida.");
   }
   const sql = getSql();
@@ -845,26 +878,6 @@ export async function setUserAccess(
       throw new ScheduleError("Debe quedar al menos un usuario Admin.");
     }
   }
-  await sql.query(
-    `
-      update app_users
-      set role = $2,
-          school = $3,
-          code = case
-            when $2 = 'admin' and code = '' then 'ADMIN'
-            when $2 = 'direccion' and code = '' then 'DIRECCION'
-            else code
-          end,
-          updated_at = now()
-      where clerk_user_id = $1
-    `,
-    [targetUserId, role, school],
-  );
-  await recordEvent(identity, targetUserId, "access.user_updated", {
-    role,
-    school,
-  });
-  return getSchedulePayload(identity);
 }
 
 export async function removeCourse(
