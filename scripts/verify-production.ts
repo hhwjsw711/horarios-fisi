@@ -9,6 +9,7 @@ type Check = {
 };
 
 type Counts = {
+  admin_users: number;
   app_users: number;
   direction_users: number;
   teacher_profiles: number;
@@ -32,9 +33,15 @@ if (envFile) {
   loadEnvFile(envFile);
 }
 
-if (!process.env.DATABASE_URL?.trim()) {
+const databaseUrlFile =
+  readArg("--database-url-file") ?? process.env.VERIFY_DATABASE_URL_FILE;
+if (databaseUrlFile) {
+  process.env.DATABASE_URL = readFileSync(databaseUrlFile, "utf8").trim();
+}
+
+if (!isPostgresUrl(process.env.DATABASE_URL)) {
   throw new Error(
-    "DATABASE_URL is required. If it is sensitive in Vercel, provide it from Neon before running this verifier.",
+    "DATABASE_URL must be a Postgres connection string. If it is sensitive in Vercel, pass --database-url-file with a Neon-generated URL.",
   );
 }
 
@@ -48,7 +55,7 @@ const minLinkedTeachers = readNumberArg("--min-linked-teachers", 0);
 const minActiveCourses = readNumberArg("--min-active-courses", 1);
 
 const envChecks: Check[] = [
-  hasEnv("DATABASE_URL"),
+  hasEnv("DATABASE_URL", isPostgresUrl),
   hasEnv("CLERK_SECRET_KEY"),
   hasEnv("CLERK_WEBHOOK_SIGNING_SECRET"),
   hasEnv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"),
@@ -63,9 +70,9 @@ const schemaChecks = Object.entries(schema).map(([name, ok]) => ({
 const counts = await readCounts();
 const dataChecks: Check[] = [
   {
-    name: "data.has_direction_user",
-    ok: counts.direction_users >= 1,
-    detail: counts.direction_users,
+    name: "data.has_admin_user",
+    ok: counts.admin_users >= 1,
+    detail: counts.admin_users,
   },
   {
     name: "data.has_min_teachers",
@@ -163,10 +170,15 @@ function nameToEnv(name: string) {
   return `VERIFY_${name.replace(/^--/, "").replaceAll("-", "_").toUpperCase()}`;
 }
 
-function hasEnv(name: string): Check {
+function hasEnv(
+  name: string,
+  validate?: (value: string | undefined) => boolean,
+): Check {
   return {
     name: `env.${name}`,
-    ok: Boolean(process.env[name]?.trim()),
+    ok: validate
+      ? validate(process.env[name])
+      : Boolean(process.env[name]?.trim()),
   };
 }
 
@@ -183,7 +195,12 @@ function loadEnvFile(path: string) {
     }
     const key = trimmed.slice(0, separator).trim();
     const value = unquoteEnvValue(trimmed.slice(separator + 1).trim());
-    if (!process.env[key]) {
+    if (
+      !process.env[key] ||
+      (key === "DATABASE_URL" &&
+        !isPostgresUrl(process.env[key]) &&
+        isPostgresUrl(value))
+    ) {
       process.env[key] = value;
     }
   }
@@ -197,6 +214,10 @@ function unquoteEnvValue(value: string) {
     return value.slice(1, -1).replaceAll('\\"', '"').replaceAll("\\n", "\n");
   }
   return value;
+}
+
+function isPostgresUrl(value: string | undefined) {
+  return /^postgres(ql)?:\/\//.test(value?.trim() ?? "");
 }
 
 async function verifyPublicRoutes(base: string): Promise<Check[]> {
@@ -243,6 +264,7 @@ async function readCounts(): Promise<Counts> {
     )
     select
       (select count(*)::int from app_users) as app_users,
+      (select count(*)::int from app_users where role = 'admin') as admin_users,
       (select count(*)::int from app_users where role = 'direccion') as direction_users,
       (select count(*)::int from teacher_profiles) as teacher_profiles,
       (select count(*)::int from teacher_profiles where clerk_user_id is not null) as linked_teachers,

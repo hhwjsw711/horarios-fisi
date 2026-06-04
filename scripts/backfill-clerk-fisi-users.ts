@@ -14,6 +14,7 @@ type ImportTeacher = {
 
 type ClerkUser = {
   id: string;
+  image_url?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   external_id?: string | null;
@@ -49,6 +50,7 @@ const usersByEmail = new Map(
 const appUsers: {
   clerkUserId: string;
   email: string;
+  imageUrl: string;
   name: string;
   teacherCode: string;
   teacherId: string;
@@ -71,6 +73,7 @@ for (const teacher of teachers) {
   appUsers.push({
     clerkUserId: user.id,
     email,
+    imageUrl: user.image_url ?? "",
     name: teacher.name,
     teacherCode: teacher.teacherCode,
     teacherId: teacher.id,
@@ -213,6 +216,7 @@ function buildSql(
   users: {
     clerkUserId: string;
     email: string;
+    imageUrl: string;
     name: string;
     teacherCode: string;
     teacherId: string;
@@ -224,23 +228,24 @@ function buildSql(
       (user) =>
         `(${sqlString(user.clerkUserId)}, ${sqlString(user.email)}, ${sqlString(
           user.name,
-        )}, 'docente', ${sqlString(selectedSchool)}, ${sqlString(
+        )}, ${sqlString(user.imageUrl)}, 'docente', ${sqlString(selectedSchool)}, ${sqlString(
           user.teacherCode,
         )}, ${sqlString(user.teacherId)})`,
     )
     .join(",\n");
   return `
-with imported(clerk_user_id, email, name, role, school, code, teacher_id) as (
+with imported(clerk_user_id, email, name, image_url, role, school, code, teacher_id) as (
   values
 ${values}
 ),
 upserted_users as (
-  insert into app_users (clerk_user_id, email, name, role, school, code)
-  select clerk_user_id, email, name, role, school, code
+  insert into app_users (clerk_user_id, email, name, image_url, role, school, code)
+  select clerk_user_id, email, name, image_url, role, school, code
   from imported
   on conflict (clerk_user_id) do update set
     email = excluded.email,
     name = excluded.name,
+    image_url = excluded.image_url,
     role = excluded.role,
     school = excluded.school,
     code = excluded.code,

@@ -41,12 +41,12 @@ Para una verificación operacional contra producción:
 
 ```bash
 vercel env pull /tmp/horarios-unmsm-prod.env --environment=production
-DATABASE_URL="$(neonctl connection-string <branch> --project-id <project> --role-name <app-role> --database-name neondb --pooled --ssl require --no-color)" \
-  bun run ops:verify -- --vercel-env-file /tmp/horarios-unmsm-prod.env --min-teachers 90 --min-linked-teachers 90 --min-active-courses 200
-rm -f /tmp/horarios-unmsm-prod.env
+neonctl connection-string <branch> --project-id <project> --role-name <app-role> --database-name neondb --pooled --ssl require --no-color > /tmp/horarios-unmsm-db.url
+bun run ops:verify -- --vercel-env-file /tmp/horarios-unmsm-prod.env --database-url-file /tmp/horarios-unmsm-db.url --min-teachers 90 --min-linked-teachers 90 --min-active-courses 200
+rm -f /tmp/horarios-unmsm-prod.env /tmp/horarios-unmsm-db.url
 ```
 
-El verificador revisa rutas públicas, env vars críticas, schema, conteos de Neon e invariantes de disponibilidad y cupos sin imprimir secretos. `DATABASE_URL` se pasa por entorno porque en Vercel debe estar marcada como sensitive y no se descarga con `env pull`.
+El verificador revisa rutas públicas, env vars críticas, schema, conteos de Neon e invariantes de disponibilidad y cupos sin imprimir secretos. `DATABASE_URL` se pasa por archivo temporal porque en Vercel debe estar marcada como sensitive y `env pull` puede traer solo un placeholder.
 
 ## Carga Docente
 
@@ -66,17 +66,31 @@ bun run db:import:teacher-courses carga-docente.csv --apply --replace-teachers
 
 Sin `--apply`, el importador solo valida. Con `--replace-teachers`, reemplaza la carga de los docentes incluidos en el archivo y respeta cupos por clase docente.
 
+## Roles
+
+Los roles efectivos vienen de `public_metadata.role` en Clerk y se reflejan en `app_users`:
+
+- `docente`: solo registra su disponibilidad y cursos.
+- `direccion`: reservado para revisión de horarios.
+- `admin`: ve Dirección, Usuarios, Auditoría y Configuración.
+
+Para promover admins y resetear el resto a docente:
+
+```bash
+bun run clerk:set-admins -- --admin-email raillyhugo@gmail.com --admin-email hpaucar@unmsm.edu.pe
+```
+
 ## Funciones
 
 - Autenticación por correo con Clerk.
-- Onboarding por rol docente o Dirección.
+- Onboarding docente. Roles administrativos desde Clerk metadata.
 - Registro de disponibilidad por docente.
 - Validación de reglas para tiempo completo, parcial 20 h y parcial 10 h.
-- Catálogo de escuelas y cursos editable desde Dirección.
+- Catálogo de escuelas y cursos editable desde Admin.
 - Búsqueda y filtros de catálogo por curso, escuela y estado.
 - Vista de Dirección para revisar docentes.
 - Búsqueda y filtros administrativos por docente, correo y estado.
-- Gestión de usuarios, roles y escuelas desde Dirección.
+- Gestión de usuarios, roles y escuelas desde Admin.
 - Búsqueda y filtros de usuarios por rol y onboarding.
 - Aprobación de horarios y cierre/reapertura de periodo académico.
 - Observaciones administrativas con historial de eventos.

@@ -39,6 +39,7 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -58,8 +59,6 @@ import {
 } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Radio, RadioGroup } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -391,6 +390,7 @@ export function ScheduleApp({
   const schoolOptions = data.schools.length ? data.schools : schools;
   const catalogForSchool = visibleCoursesForSchool(activeCatalog, school);
   const completion = completionFor(profile, validation);
+  const canUseAdmin = data.canUseAdmin;
   const canUseDirection = data.canUseDirection;
   const showClerkControls = process.env.NODE_ENV === "production" && !preview;
   const approvedCount = data.teachers.filter(
@@ -891,6 +891,7 @@ export function ScheduleApp({
     <ScheduleFrame
       academicTerm={academicTerm}
       canSignOut={showClerkControls}
+      canUseAdmin={canUseAdmin}
       canUseDirection={canUseDirection}
       completion={sidebarCompletion}
       completionLabel={sidebarCompletionLabel}
@@ -901,7 +902,7 @@ export function ScheduleApp({
       status={profile.status}
       userName={data.userName}
     >
-      {view === "configuracion" && canUseDirection ? (
+      {view === "configuracion" && canUseAdmin ? (
         <ConfigurationView
           academicTerm={academicTerm}
           approvedCount={approvedCount}
@@ -920,7 +921,7 @@ export function ScheduleApp({
           schools={schoolOptions}
           teacherCount={data.teachers.length}
         />
-      ) : view === "usuarios" && canUseDirection ? (
+      ) : view === "usuarios" && canUseAdmin ? (
         <UsersAccessView
           currentUserId={data.currentUserId}
           onSetUserAccess={handleSetUserAccess}
@@ -928,7 +929,7 @@ export function ScheduleApp({
           schools={schoolOptions}
           users={data.users}
         />
-      ) : view === "auditoria" && canUseDirection ? (
+      ) : view === "auditoria" && canUseAdmin ? (
         <AuditView events={data.events} />
       ) : view === "direccion" && canUseDirection ? (
         <DirectorView
@@ -1026,7 +1027,7 @@ export function OnboardingRouteApp({ preview = false }: { preview?: boolean }) {
       );
       return;
     }
-    router.push(next.role === "direccion" ? "/direccion" : "/docente");
+    router.push("/docente");
   };
 
   if (error) {
@@ -1050,6 +1051,7 @@ export function OnboardingRouteApp({ preview = false }: { preview?: boolean }) {
 function ScheduleFrame({
   academicTerm,
   canSignOut,
+  canUseAdmin,
   canUseDirection,
   children,
   completion,
@@ -1063,6 +1065,7 @@ function ScheduleFrame({
 }: {
   academicTerm: string;
   canSignOut: boolean;
+  canUseAdmin: boolean;
   canUseDirection: boolean;
   children: React.ReactNode;
   completion: number;
@@ -1080,6 +1083,7 @@ function ScheduleFrame({
         <Sidebar collapsible="icon" className="border-sidebar-border">
           <AppSidebar
             canSignOut={canSignOut}
+            canUseAdmin={canUseAdmin}
             canUseDirection={canUseDirection}
             completion={completion}
             completionLabel={completionLabel}
@@ -1135,6 +1139,7 @@ function ScheduleFrame({
 
 function AppSidebar({
   canSignOut,
+  canUseAdmin,
   canUseDirection,
   completion,
   completionLabel,
@@ -1144,6 +1149,7 @@ function AppSidebar({
   userName,
 }: {
   canSignOut: boolean;
+  canUseAdmin: boolean;
   canUseDirection: boolean;
   completion: number;
   completionLabel: string;
@@ -1202,8 +1208,8 @@ function AppSidebar({
                 <span>Docente</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
-            <SidebarMenuItem>
-              {canUseDirection ? (
+            {canUseDirection ? (
+              <SidebarMenuItem>
                 <SidebarMenuButton
                   className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                   isActive={selectedView === "direccion"}
@@ -1213,22 +1219,10 @@ function AppSidebar({
                   <Users />
                   <span>Dirección</span>
                 </SidebarMenuButton>
-              ) : (
-                <SidebarMenuButton
-                  aria-disabled
-                  className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
-                  disabled
-                  tooltip="Disponible para directores"
-                >
-                  <LockKeyhole />
-                  <span>Dirección</span>
-                </SidebarMenuButton>
-              )}
-              {canUseDirection ? (
                 <SidebarMenuBadge>{pendingCount}</SidebarMenuBadge>
-              ) : null}
-            </SidebarMenuItem>
-            {canUseDirection ? (
+              </SidebarMenuItem>
+            ) : null}
+            {canUseAdmin ? (
               <>
                 <SidebarMenuItem>
                   <SidebarMenuButton
@@ -1358,19 +1352,11 @@ function OnboardingView({
   schoolOptions: string[];
   userEmail?: string;
 }) {
-  const [role, setRole] = useState<AppRole>("docente");
+  const role: AppRole = "docente";
   const [school, setSchool] = useState(defaultSchool);
   const [code, setCode] = useState("");
   const [saving, setSaving] = useState(false);
   const codeIsValid = code.trim().length >= 4;
-  const codeLabel =
-    role === "direccion" ? "Código de acceso Dirección" : "Código o legajo";
-  const codePlaceholder =
-    role === "direccion" ? "Código autorizado" : "Ej. 082026";
-  const codeDescription =
-    role === "direccion"
-      ? "Valida el acceso administrativo sin guardar el secreto."
-      : "Se guarda en Neon y queda asociado a tu cuenta Clerk.";
 
   const handleSubmit = async () => {
     if (!codeIsValid) {
@@ -1398,7 +1384,7 @@ function OnboardingView({
                   Configura tu acceso institucional
                 </CardTitle>
                 <CardDescription>
-                  Elige tu rol para activar la ruta correcta.
+                  Completa tu código docente para activar tu horario.
                 </CardDescription>
               </div>
               <Badge variant="secondary">Onboarding</Badge>
@@ -1406,30 +1392,20 @@ function OnboardingView({
           </CardHeader>
           <CardContent className="grid h-full min-h-0 gap-4 p-4 md:grid-cols-[1fr_1fr]">
             <Field>
-              <FieldLabel>Rol en el proceso de horarios</FieldLabel>
+              <FieldLabel>Rol institucional</FieldLabel>
               <FieldDescription>
-                Docentes registran disponibilidad. Dirección revisa y exporta.
+                Los docentes registran disponibilidad. Admin se asigna desde
+                Clerk.
               </FieldDescription>
-              <RadioGroup
-                className="grid gap-3 pt-1"
-                value={role}
-                onValueChange={(value) => setRole(value as AppRole)}
-              >
-                <RoleChoice
-                  checked={role === "docente"}
-                  description="Registro de disponibilidad, cursos y envío a revisión."
-                  icon={<CalendarClock className="size-4 text-gold" />}
-                  label="Docente"
-                  value="docente"
-                />
-                <RoleChoice
-                  checked={role === "direccion"}
-                  description="Panel de revisión, validación y exportación de docentes."
-                  icon={<ShieldCheck className="size-4 text-gold" />}
-                  label="Director o administrativo"
-                  value="direccion"
-                />
-              </RadioGroup>
+              <div className="mt-2 rounded-lg border bg-card p-3">
+                <div className="flex items-center gap-2 font-medium">
+                  <CalendarClock className="size-4 text-gold" />
+                  Docente
+                </div>
+                <p className="mt-1 text-muted-foreground text-sm">
+                  Registro de disponibilidad, cursos y envío a revisión.
+                </p>
+              </div>
             </Field>
             <div className="space-y-4">
               <Field>
@@ -1451,14 +1427,16 @@ function OnboardingView({
                 </Select>
               </Field>
               <Field>
-                <FieldLabel>{codeLabel}</FieldLabel>
+                <FieldLabel>Código o legajo</FieldLabel>
                 <Input
                   value={code}
                   onChange={(event) => setCode(event.target.value)}
-                  placeholder={codePlaceholder}
-                  type={role === "direccion" ? "password" : "text"}
+                  placeholder="Ej. 082026"
+                  type="text"
                 />
-                <FieldDescription>{codeDescription}</FieldDescription>
+                <FieldDescription>
+                  Se guarda en Neon y queda asociado a tu cuenta Clerk.
+                </FieldDescription>
               </Field>
               <Alert variant="info">
                 <Info />
@@ -1502,40 +1480,6 @@ function OnboardingView({
         </Card>
       </div>
     </section>
-  );
-}
-
-function RoleChoice({
-  checked,
-  description,
-  icon,
-  label,
-  value,
-}: {
-  checked: boolean;
-  description: string;
-  icon: React.ReactNode;
-  label: string;
-  value: AppRole;
-}) {
-  return (
-    <Label
-      className={cn(
-        "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
-        checked ? "border-primary bg-accent" : "bg-card hover:bg-accent/60",
-      )}
-    >
-      <Radio value={value} />
-      <span className="flex min-w-0 flex-1 gap-3">
-        <span className="mt-0.5">{icon}</span>
-        <span>
-          <span className="block font-medium">{label}</span>
-          <span className="block text-muted-foreground text-sm">
-            {description}
-          </span>
-        </span>
-      </span>
-    </Label>
   );
 }
 
@@ -1601,6 +1545,11 @@ function DocenteView({
       : selectedCourseLimitReached
         ? "Cupo lleno"
         : "Agregar";
+  const creditTotal = profile.courses.reduce(
+    (total, course) => total + (course.credits ?? 0),
+    0,
+  );
+  const hasKnownCredits = profile.courses.some((course) => course.credits);
 
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_330px]">
@@ -1652,6 +1601,7 @@ function DocenteView({
             </ToolbarGroup>
           </Toolbar>
         </CardHeader>
+        <DocenteRuleStrip profile={profile} validation={validation} />
         <CardContent className="min-h-0 flex-1 p-0">
           <ScheduleBoard
             availability={profile.availability}
@@ -1666,6 +1616,8 @@ function DocenteView({
           addCourseDisabled={addCourseDisabled}
           addCourseLabel={addCourseLabel}
           courseId={courseId}
+          creditProgress={hasKnownCredits ? `${creditTotal} cr.` : undefined}
+          courseProgress={`${validation.countedCourses}/${contractRules[profile.contract].maxCourses}`}
           courseSaving={courseSaving}
           courses={profile.courses}
           disabled={periodClosed}
@@ -1688,11 +1640,63 @@ function DocenteView({
   );
 }
 
+function DocenteRuleStrip({
+  profile,
+  validation,
+}: {
+  profile: TeacherProfile;
+  validation: Validation;
+}) {
+  const rule = contractRules[profile.contract];
+  const items = [
+    {
+      complete: validation.selectedHours >= rule.requiredHours,
+      label: "Horas",
+      value: `${validation.selectedHours}/${rule.requiredHours}`,
+    },
+    {
+      complete: validation.blockDays >= rule.requiredBlockDays,
+      label: "Bloques",
+      value: `${validation.blockDays}/${rule.requiredBlockDays}`,
+    },
+    {
+      complete:
+        validation.countedCourses > 0 &&
+        validation.countedCourses <= rule.maxCourses,
+      label: "Cursos",
+      value: `${validation.countedCourses}/${rule.maxCourses}`,
+    },
+  ];
+
+  return (
+    <div className="grid shrink-0 grid-cols-3 border-b bg-muted/25 text-sm">
+      {items.map((item) => (
+        <div
+          className="flex min-w-0 items-center justify-between gap-2 border-r px-3 py-1.5 last:border-r-0"
+          key={item.label}
+        >
+          <span className="truncate text-muted-foreground">{item.label}</span>
+          <span
+            className={cn(
+              "font-semibold tabular-nums",
+              item.complete ? "text-availability" : "text-foreground",
+            )}
+          >
+            {item.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CoursesEditorCard({
   addCourseDisabled,
   addCourseLabel,
   catalogForSchool,
   courseId,
+  creditProgress,
+  courseProgress,
   courseSaving,
   courses,
   disabled = false,
@@ -1707,6 +1711,8 @@ function CoursesEditorCard({
   addCourseLabel: string;
   catalogForSchool: Course[];
   courseId: string;
+  creditProgress?: string;
+  courseProgress: string;
   courseSaving: boolean;
   courses: Course[];
   disabled?: boolean;
@@ -1720,12 +1726,22 @@ function CoursesEditorCard({
   return (
     <Card className="min-h-0 overflow-hidden">
       <CardHeader className="shrink-0 border-b px-2.5 py-1.5">
-        <CardTitle className="truncate text-base">
-          Cursos seleccionados
-        </CardTitle>
-        <CardDescription className="hidden truncate sm:block">
-          Carga permitida por contrato.
-        </CardDescription>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="truncate text-base">
+              Cursos seleccionados
+            </CardTitle>
+            <CardDescription className="hidden truncate sm:block">
+              Carga permitida por contrato.
+            </CardDescription>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Badge variant="secondary">{courseProgress}</Badge>
+            {creditProgress ? (
+              <Badge variant="outline">{creditProgress}</Badge>
+            ) : null}
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-1.5 px-2 py-1.5">
         <div className="grid gap-1.5">
@@ -2342,6 +2358,7 @@ function UsersAccessView({
   const [roleFilter, setRoleFilter] = useState<UserRoleFilter>("all");
   const [onboardingFilter, setOnboardingFilter] =
     useState<UserOnboardingFilter>("all");
+  const adminCount = users.filter((user) => user.role === "admin").length;
   const directionCount = users.filter(
     (user) => user.role === "direccion",
   ).length;
@@ -2367,7 +2384,7 @@ function UsersAccessView({
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_300px]">
       <Card className="min-h-0 overflow-hidden" size="sm">
-        <CardHeader className="grid shrink-0 gap-1.5 border-b px-2.5 py-1.5 lg:grid-cols-[minmax(0,1fr)_minmax(460px,auto)] lg:items-center">
+        <CardHeader className="grid shrink-0 gap-1.5 border-b px-2.5 py-1.5 2xl:grid-cols-[minmax(0,1fr)_minmax(460px,auto)] 2xl:items-center">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
               <CardTitle className="truncate font-serif text-xl">
@@ -2401,6 +2418,7 @@ function UsersAccessView({
                 <SelectGroup>
                   <SelectLabel>Rol</SelectLabel>
                   <SelectItem value="all">Todos los roles</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="direccion">Dirección</SelectItem>
                   <SelectItem value="docente">Docente</SelectItem>
                 </SelectGroup>
@@ -2448,19 +2466,17 @@ function UsersAccessView({
             <CardDescription>Resumen operativo.</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-3 gap-2 px-2.5 py-2">
+            <StatusMetric label="Admin" value={String(adminCount)} />
             <StatusMetric label="Dirección" value={String(directionCount)} />
             <StatusMetric label="Docentes" value={String(teacherCount)} />
-            <StatusMetric
-              label="Pendientes"
-              value={String(pendingOnboarding)}
-            />
           </CardContent>
         </Card>
-        <Alert variant={directionCount > 0 ? "default" : "warning"}>
+        <Alert variant={adminCount > 0 ? "default" : "warning"}>
           <Info />
           <AlertTitle>Regla de seguridad</AlertTitle>
           <AlertDescription>
-            El sistema mantiene al menos un usuario con acceso Dirección.
+            El sistema mantiene al menos un usuario Admin. Pendientes de
+            onboarding: {pendingOnboarding}.
           </AlertDescription>
         </Alert>
       </aside>
@@ -2537,17 +2553,25 @@ function UsersAccessTable({
             return (
               <TableRow className="h-12" key={user.clerkUserId}>
                 <TableCell className="px-2 py-1">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">
-                      {user.name}
-                      {isSelf ? (
-                        <Badge variant="secondary" className="ml-2">
-                          Tú
-                        </Badge>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Avatar size="sm">
+                      {user.imageUrl ? (
+                        <AvatarImage src={user.imageUrl} alt={user.name} />
                       ) : null}
-                    </div>
-                    <div className="truncate text-muted-foreground text-xs">
-                      {user.email}
+                      <AvatarFallback>{initialsFor(user.name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">
+                        {user.name}
+                        {isSelf ? (
+                          <Badge variant="secondary" className="ml-2">
+                            Tú
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <div className="truncate text-muted-foreground text-xs">
+                        {user.email}
+                      </div>
                     </div>
                   </div>
                 </TableCell>
@@ -2569,6 +2593,7 @@ function UsersAccessTable({
                     <SelectContent>
                       <SelectGroup>
                         <SelectLabel>Rol</SelectLabel>
+                        <SelectItem value="admin">Admin</SelectItem>
                         <SelectItem value="docente">Docente</SelectItem>
                         <SelectItem value="direccion">Dirección</SelectItem>
                       </SelectGroup>
@@ -3659,8 +3684,7 @@ function LockedDirectionView() {
         <LockKeyhole />
         <AlertTitle>Ruta restringida</AlertTitle>
         <AlertDescription>
-          La vista de Dirección está disponible para usuarios con rol director o
-          administrativo.
+          Esta ruta está disponible solo para cuentas con rol Admin.
         </AlertDescription>
         <AlertAction>
           <Link className={buttonVariants({ size: "sm" })} href="/docente">
@@ -4118,7 +4142,21 @@ function statusLabel(status: TeacherProfile["status"]) {
 }
 
 function roleLabel(role: AppRole) {
+  if (role === "admin") {
+    return "Admin";
+  }
   return role === "direccion" ? "Dirección" : "Docente";
+}
+
+function initialsFor(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return (
+    parts
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase() || "U"
+  );
 }
 
 function routeLabel(view: ViewKey) {

@@ -1,4 +1,4 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
 import { type NextRequest, NextResponse } from "next/server";
 import { type ContractKey, contractRules } from "@/lib/schedule-data";
 import type { AppRole } from "@/lib/schedule-db";
@@ -161,9 +161,14 @@ export async function PATCH(request: NextRequest) {
       ) {
         return NextResponse.json({ error: "Invalid user" }, { status: 400 });
       }
-      return NextResponse.json(
-        await setUserAccess(identity, body.userId, body.role, body.school),
+      const payload = await setUserAccess(
+        identity,
+        body.userId,
+        body.role,
+        body.school,
       );
+      await updateClerkRole(body.userId, body.role);
+      return NextResponse.json(payload);
     }
     if (body.action === "setPeriodClosed") {
       return NextResponse.json(
@@ -198,11 +203,18 @@ export async function PATCH(request: NextRequest) {
 }
 
 function isRole(value: unknown): value is AppRole {
-  return value === "docente" || value === "direccion";
+  return value === "docente" || value === "direccion" || value === "admin";
 }
 
 function isContractKey(value: unknown): value is ContractKey {
   return typeof value === "string" && value in contractRules;
+}
+
+async function updateClerkRole(userId: string, role: AppRole) {
+  const client = await clerkClient();
+  await client.users.updateUserMetadata(userId, {
+    publicMetadata: { role },
+  });
 }
 
 async function resolveIdentity(
@@ -223,11 +235,16 @@ async function resolveIdentity(
     const { userId } = await auth();
     if (userId) {
       const user = await currentUser();
+      const role = isRole(user?.publicMetadata?.role)
+        ? user.publicMetadata.role
+        : undefined;
       return {
         clerkUserId: userId,
         email:
           user?.primaryEmailAddress?.emailAddress ?? `${userId}@unmsm.edu.pe`,
+        imageUrl: user?.imageUrl,
         name: user?.fullName ?? user?.firstName ?? "Docente UNMSM",
+        role,
       };
     }
   } catch {

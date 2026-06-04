@@ -24,7 +24,7 @@ import {
   type TeacherCourseImportTeacher,
 } from "@/lib/teacher-course-import";
 
-export type AppRole = "docente" | "direccion";
+export type AppRole = "docente" | "direccion" | "admin";
 
 export type Onboarding = {
   role: AppRole;
@@ -36,8 +36,10 @@ export type Onboarding = {
 export type ScheduleIdentity = {
   clerkUserId: string;
   email: string;
+  imageUrl?: string;
   name: string;
   preview?: boolean;
+  role?: AppRole;
 };
 
 export type SchedulePayload = {
@@ -50,6 +52,7 @@ export type SchedulePayload = {
   settings: ScheduleSettings;
   events: ScheduleEvent[];
   onboarding: Onboarding;
+  canUseAdmin: boolean;
   canUseDirection: boolean;
   userName: string;
 };
@@ -73,6 +76,7 @@ export type ScheduleEvent = {
 export type ScheduleUser = {
   clerkUserId: string;
   email: string;
+  imageUrl?: string;
   name: string;
   role: AppRole;
   school: string;
@@ -85,7 +89,9 @@ export type ScheduleUser = {
 export type ClerkUserSyncInput = {
   clerkUserId: string;
   email: string;
+  imageUrl?: string;
   name: string;
+  role?: AppRole;
 };
 
 export class ScheduleError extends Error {
@@ -100,6 +106,7 @@ export class ScheduleError extends Error {
 type AppUserRow = {
   clerk_user_id: string;
   email: string;
+  image_url: string | null;
   name: string;
   role: AppRole;
   school: string;
@@ -186,7 +193,8 @@ export async function ensureScheduleSchema() {
       clerk_user_id text primary key,
       email text not null,
       name text not null,
-      role text not null default 'docente' check (role in ('docente', 'direccion')),
+      image_url text not null default '',
+      role text not null default 'docente' check (role in ('docente', 'direccion', 'admin')),
       school text not null default 'Ing. de Sistemas',
       code text not null default '',
       created_at timestamptz not null default now(),
@@ -254,6 +262,15 @@ export async function ensureScheduleSchema() {
     "alter table teacher_profiles add column if not exists review_note text not null default ''",
   );
   await sql.query(
+    "alter table app_users add column if not exists image_url text not null default ''",
+  );
+  await sql.query(
+    "alter table app_users drop constraint if exists app_users_role_check",
+  );
+  await sql.query(
+    "alter table app_users add constraint app_users_role_check check (role in ('docente', 'direccion', 'admin'))",
+  );
+  await sql.query(
     "alter table teacher_profiles add column if not exists approved_at text",
   );
   await sql.query(
@@ -294,7 +311,7 @@ export async function ensureScheduleSchema() {
 
 export async function verifyScheduleSchema() {
   const sql = getSql();
-  const columns = (await sql.query(
+  const teacherColumns = (await sql.query(
     `
       select column_name
       from information_schema.columns
@@ -303,7 +320,16 @@ export async function verifyScheduleSchema() {
       order by column_name
     `,
   )) as { column_name: string }[];
-  const constraints = (await sql.query(
+  const appUserColumns = (await sql.query(
+    `
+      select column_name
+      from information_schema.columns
+      where table_name = 'app_users'
+        and column_name in ('image_url')
+      order by column_name
+    `,
+  )) as { column_name: string }[];
+  const teacherConstraints = (await sql.query(
     `
       select pg_get_constraintdef(oid) as definition
       from pg_constraint
@@ -311,16 +337,32 @@ export async function verifyScheduleSchema() {
       limit 1
     `,
   )) as { definition: string }[];
+  const appUserConstraints = (await sql.query(
+    `
+      select pg_get_constraintdef(oid) as definition
+      from pg_constraint
+      where conname = 'app_users_role_check'
+      limit 1
+    `,
+  )) as { definition: string }[];
   const settings = (await sql.query(
     "select key from app_settings where key in ('academic_term', 'period_closed') order by key",
   )) as { key: string }[];
-  const columnNames = new Set(columns.map((row) => row.column_name));
+  const teacherColumnNames = new Set(
+    teacherColumns.map((row) => row.column_name),
+  );
+  const appUserColumnNames = new Set(
+    appUserColumns.map((row) => row.column_name),
+  );
   const settingKeys = new Set(settings.map((row) => row.key));
-  const statusConstraint = constraints[0]?.definition ?? "";
+  const statusConstraint = teacherConstraints[0]?.definition ?? "";
+  const roleConstraint = appUserConstraints[0]?.definition ?? "";
   return {
-    approvedAtColumn: columnNames.has("approved_at"),
-    reviewNoteColumn: columnNames.has("review_note"),
-    submittedAtColumn: columnNames.has("submitted_at"),
+    appUsersAdminRole: roleConstraint.includes("admin"),
+    appUsersImageUrlColumn: appUserColumnNames.has("image_url"),
+    approvedAtColumn: teacherColumnNames.has("approved_at"),
+    reviewNoteColumn: teacherColumnNames.has("review_note"),
+    submittedAtColumn: teacherColumnNames.has("submitted_at"),
     statusAllowsApproved: statusConstraint.includes("aprobado"),
     academicTermSetting: settingKeys.has("academic_term"),
     periodClosedSetting: settingKeys.has("period_closed"),
@@ -413,20 +455,22 @@ export async function getSchedulePayload(
   await ensureSeeded();
   const user = await ensureUser(identity);
   const profileId = identity.clerkUserId;
+  const officialProfile = await linkOfficialTeacherProfile(identity);
+  const canUseDirection = canUseDirectionRole(user.role);
+  const canUseAdmin = user.role === "admin";
   const profile =
-    (await linkOfficialTeacherProfile(identity)) ??
-    (user.role === "direccion"
+    officialProfile ??
+    (canUseDirection
       ? administrativeProfile(user)
       : await ensureTeacherProfile(profileId, identity));
   const catalog = await readCourseCatalog();
   const schoolOptions = await readSchools();
   const settings = await readSettings();
-  const teachers = user.role === "direccion" ? await readTeachers() : [profile];
-  const users = user.role === "direccion" ? await readUsers() : [];
-  const events =
-    user.role === "direccion"
-      ? await readScheduleEvents()
-      : await readScheduleEvents(profile.id);
+  const teachers = canUseDirection ? await readTeachers() : [profile];
+  const users = canUseAdmin ? await readUsers() : [];
+  const events = canUseDirection
+    ? await readScheduleEvents()
+    : await readScheduleEvents(profile.id);
   return {
     currentUserId: identity.clerkUserId,
     profile,
@@ -440,9 +484,10 @@ export async function getSchedulePayload(
       role: user.role,
       school: user.school,
       code: user.code,
-      complete: user.code.trim().length > 0,
+      complete: user.code.trim().length > 0 || canUseDirection,
     },
-    canUseDirection: user.role === "direccion",
+    canUseAdmin,
+    canUseDirection,
     userName: user.name,
   };
 }
@@ -455,11 +500,7 @@ export async function completeOnboarding(
     return getPreviewPayload(identity);
   }
   await ensureSeeded();
-  const validated = validateOnboarding(
-    identity,
-    onboarding,
-    await readSchools(),
-  );
+  const validated = validateOnboarding(onboarding, await readSchools());
   const sql = getSql();
   await ensureUser(identity);
   await sql.query(
@@ -492,11 +533,28 @@ export async function syncClerkUser(input: ClerkUserSyncInput) {
   const teacherCode = officialRows[0]?.teacher_code?.trim() ?? "";
   const rows = (await sql.query(
     `
-      insert into app_users (clerk_user_id, email, name, school, code)
-      values ($1, $2, $3, 'Ing. de Sistemas', $4)
+      insert into app_users (clerk_user_id, email, name, image_url, role, school, code)
+      values (
+        $1,
+        $2,
+        $3,
+        $4,
+        coalesce($5::text, 'docente'),
+        'Ing. de Sistemas',
+        case
+          when $5::text = 'admin' then 'ADMIN'
+          when $5::text = 'direccion' then 'DIRECCION'
+          else $6
+        end
+      )
       on conflict (clerk_user_id) do update set
         email = excluded.email,
         name = excluded.name,
+        image_url = excluded.image_url,
+        role = case
+          when $5::text is not null then excluded.role
+          else app_users.role
+        end,
         code = case
           when app_users.code = '' and excluded.code <> '' then excluded.code
           else app_users.code
@@ -504,13 +562,22 @@ export async function syncClerkUser(input: ClerkUserSyncInput) {
         updated_at = case
           when app_users.email is distinct from excluded.email
             or app_users.name is distinct from excluded.name
+            or app_users.image_url is distinct from excluded.image_url
+            or ($5::text is not null and app_users.role is distinct from excluded.role)
             or (app_users.code = '' and excluded.code <> '')
           then now()
           else app_users.updated_at
         end
       returning clerk_user_id
     `,
-    [input.clerkUserId, input.email, input.name, teacherCode],
+    [
+      input.clerkUserId,
+      input.email,
+      input.name,
+      input.imageUrl ?? "",
+      input.role ?? null,
+      teacherCode,
+    ],
   )) as { clerk_user_id: string }[];
   await sql.query(
     `
@@ -603,7 +670,7 @@ export async function assignTeacherCourse(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  await ensureDirection(identity);
+  await ensureAdmin(identity);
   return addCourseToTeacher(
     identity,
     teacherId,
@@ -658,7 +725,7 @@ export async function createCourse(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  await ensureDirection(identity);
+  await ensureAdmin(identity);
   const name = input.name.trim();
   const school = input.school.trim();
   if (name.length < 3 || school.length < 3) {
@@ -694,7 +761,7 @@ export async function setCourseActive(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  await ensureDirection(identity);
+  await ensureAdmin(identity);
   const sql = getSql();
   const rows = (await sql.query(
     `
@@ -721,7 +788,7 @@ export async function setAcademicTerm(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  await ensureDirection(identity);
+  await ensureAdmin(identity);
   const normalizedTerm = academicTerm.trim();
   if (normalizedTerm.length < 4 || normalizedTerm.length > 24) {
     throw new ScheduleError("Periodo académico no válido.");
@@ -752,7 +819,7 @@ export async function setUserAccess(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  await ensureDirection(identity);
+  await ensureAdmin(identity);
   const schools = await readSchools();
   if (!schools.includes(school)) {
     throw new ScheduleError("Escuela no válida.");
@@ -766,16 +833,16 @@ export async function setUserAccess(
   if (!target) {
     throw new ScheduleError("Usuario no encontrado.", 404);
   }
-  if (targetUserId === identity.clerkUserId && role !== "direccion") {
+  if (targetUserId === identity.clerkUserId && role !== "admin") {
     throw new ScheduleError("No puedes retirar tu propio acceso.", 403);
   }
-  if (target.role === "direccion" && role !== "direccion") {
-    const directionRows = (await sql.query(
-      "select count(*)::int as count from app_users where role = 'direccion' and clerk_user_id <> $1",
+  if (target.role === "admin" && role !== "admin") {
+    const adminRows = (await sql.query(
+      "select count(*)::int as count from app_users where role = 'admin' and clerk_user_id <> $1",
       [targetUserId],
     )) as { count: number }[];
-    if (Number(directionRows[0]?.count ?? 0) === 0) {
-      throw new ScheduleError("Debe quedar al menos un usuario Dirección.");
+    if (Number(adminRows[0]?.count ?? 0) === 0) {
+      throw new ScheduleError("Debe quedar al menos un usuario Admin.");
     }
   }
   await sql.query(
@@ -783,7 +850,11 @@ export async function setUserAccess(
       update app_users
       set role = $2,
           school = $3,
-          code = case when $2 = 'direccion' and code = '' then 'DIRECCION' else code end,
+          code = case
+            when $2 = 'admin' and code = '' then 'ADMIN'
+            when $2 = 'direccion' and code = '' then 'DIRECCION'
+            else code
+          end,
           updated_at = now()
       where clerk_user_id = $1
     `,
@@ -820,7 +891,7 @@ export async function unassignTeacherCourse(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  await ensureDirection(identity);
+  await ensureAdmin(identity);
   return removeCourseFromTeacher(
     identity,
     teacherId,
@@ -852,7 +923,7 @@ export async function importTeacherCourses(
       payload,
     };
   }
-  await ensureDirection(identity);
+  await ensureAdmin(identity);
   if (input.apply) {
     await ensurePeriodOpen();
   }
@@ -1034,7 +1105,7 @@ export async function observeSchedule(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  await ensureDirection(identity);
+  await ensureAdmin(identity);
   await ensurePeriodOpen();
   const normalizedNote = note.trim();
   if (normalizedNote.length < 8) {
@@ -1066,7 +1137,7 @@ export async function approveSchedule(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  await ensureDirection(identity);
+  await ensureAdmin(identity);
   await ensurePeriodOpen();
   const profile = await readTeacher(teacherId);
   if (profile.status === "aprobado") {
@@ -1127,7 +1198,7 @@ export async function setPeriodClosed(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  await ensureDirection(identity);
+  await ensureAdmin(identity);
   const sql = getSql();
   if (closed) {
     const teachers = await readTeachers();
@@ -1197,12 +1268,16 @@ async function prepareScheduleData() {
   }
 }
 
-async function ensureDirection(identity: ScheduleIdentity) {
+async function ensureAdmin(identity: ScheduleIdentity) {
   await ensureSeeded();
   const user = await ensureUser(identity);
-  if (user.role !== "direccion") {
-    throw new ScheduleError("No tienes acceso de Dirección.", 403);
+  if (user.role !== "admin") {
+    throw new ScheduleError("No tienes acceso Admin.", 403);
   }
+}
+
+function canUseDirectionRole(role: AppRole) {
+  return role === "admin" || role === "direccion";
 }
 
 async function ensurePeriodOpen() {
@@ -1228,7 +1303,6 @@ async function upsertSetting(key: string, value: string) {
 }
 
 function validateOnboarding(
-  identity: ScheduleIdentity,
   onboarding: Omit<Onboarding, "complete">,
   availableSchools: string[],
 ) {
@@ -1238,37 +1312,17 @@ function validateOnboarding(
   if (onboarding.code.trim().length < 4) {
     throw new ScheduleError("Código institucional no válido.");
   }
-  if (onboarding.role === "docente") {
-    return {
-      role: onboarding.role,
-      school: onboarding.school,
-      code: onboarding.code.trim(),
-    };
-  }
-  const directorCode = process.env.DIRECTION_ACCESS_CODE?.trim();
-  const emailIsAllowed = getDirectionEmailAllowlist().has(
-    identity.email.toLowerCase(),
-  );
-  const codeIsValid = Boolean(
-    directorCode && onboarding.code.trim() === directorCode,
-  );
-  if (!emailIsAllowed && !codeIsValid) {
-    throw new ScheduleError("Código de Dirección inválido.", 403);
+  if (onboarding.role !== "docente") {
+    throw new ScheduleError(
+      "Los roles administrativos se asignan desde Clerk.",
+      403,
+    );
   }
   return {
-    role: onboarding.role,
+    role: "docente" as const,
     school: onboarding.school,
-    code: emailIsAllowed ? onboarding.code.trim() : "DIRECCION",
+    code: onboarding.code.trim(),
   };
-}
-
-function getDirectionEmailAllowlist() {
-  return new Set(
-    (process.env.DIRECTION_EMAIL_ALLOWLIST ?? "")
-      .split(",")
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean),
-  );
 }
 
 async function readCourseCatalog() {
@@ -1379,6 +1433,7 @@ async function readUsers(): Promise<ScheduleUser[]> {
     select
       au.clerk_user_id,
       au.email,
+      au.image_url,
       au.name,
       au.role,
       au.school,
@@ -1389,12 +1444,13 @@ async function readUsers(): Promise<ScheduleUser[]> {
     from app_users au
     left join teacher_profiles tp on tp.clerk_user_id = au.clerk_user_id
     order by
-      case au.role when 'direccion' then 0 else 1 end,
+      case au.role when 'admin' then 0 when 'direccion' then 1 else 2 end,
       au.name asc
   `)) as AppUserRow[];
   return rows.map((row) => ({
     clerkUserId: row.clerk_user_id,
     email: row.email,
+    imageUrl: row.image_url || undefined,
     name: row.name,
     role: row.role,
     school: row.school,
@@ -1453,7 +1509,8 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
         clerkUserId: "local-preview",
         email: "preview@unmsm.edu.pe",
         name: identity.name,
-        role: "direccion",
+        imageUrl: "",
+        role: "admin",
         school: "Ing. de Sistemas",
         onboardingComplete: true,
         teacherStatus: null,
@@ -1463,6 +1520,7 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
       {
         clerkUserId: seedTeachers[0].id,
         email: seedTeachers[0].email,
+        imageUrl: "",
         name: seedTeachers[0].name,
         role: "docente",
         school: "Ing. de Sistemas",
@@ -1474,6 +1532,7 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
       {
         clerkUserId: seedTeachers[2].id,
         email: seedTeachers[2].email,
+        imageUrl: "",
         name: seedTeachers[2].name,
         role: "docente",
         school: "Contabilidad",
@@ -1510,11 +1569,12 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
       },
     ],
     onboarding: {
-      role: "direccion",
+      role: "admin",
       school: "Ing. de Sistemas",
       code: "PREVIEW",
       complete: true,
     },
+    canUseAdmin: true,
     canUseDirection: true,
     userName: identity.name,
   };
@@ -1524,20 +1584,49 @@ async function ensureUser(identity: ScheduleIdentity) {
   const sql = getSql();
   const rows = (await sql.query(
     `
-      insert into app_users (clerk_user_id, email, name)
-      values ($1, $2, $3)
+      insert into app_users (clerk_user_id, email, name, image_url, role, code)
+      values (
+        $1,
+        $2,
+        $3,
+        $4,
+        coalesce($5::text, 'docente'),
+        case
+          when $5::text = 'admin' then 'ADMIN'
+          when $5::text = 'direccion' then 'DIRECCION'
+          else ''
+        end
+      )
       on conflict (clerk_user_id) do update set
         email = excluded.email,
         name = excluded.name,
+        image_url = excluded.image_url,
+        role = case
+          when $5::text is not null then excluded.role
+          else app_users.role
+        end,
+        code = case
+          when app_users.code = '' and excluded.code <> '' then excluded.code
+          else app_users.code
+        end,
         updated_at = case
           when app_users.email is distinct from excluded.email
             or app_users.name is distinct from excluded.name
+            or app_users.image_url is distinct from excluded.image_url
+            or ($5::text is not null and app_users.role is distinct from excluded.role)
+            or (app_users.code = '' and excluded.code <> '')
           then now()
           else app_users.updated_at
         end
-      returning clerk_user_id, email, name, role, school, code
+      returning clerk_user_id, email, name, image_url, role, school, code
     `,
-    [identity.clerkUserId, identity.email, identity.name],
+    [
+      identity.clerkUserId,
+      identity.email,
+      identity.name,
+      identity.imageUrl ?? "",
+      identity.role ?? null,
+    ],
   )) as AppUserRow[];
   return rows[0];
 }
@@ -1620,7 +1709,7 @@ async function getProfileId(identity: ScheduleIdentity) {
   if (officialProfile) {
     return officialProfile.id;
   }
-  if (user.role === "direccion") {
+  if (canUseDirectionRole(user.role)) {
     throw new ScheduleError("Tu cuenta no tiene perfil docente asignado.", 403);
   }
   const profile = await ensureTeacherProfile(identity.clerkUserId, identity);
@@ -1633,8 +1722,6 @@ async function readTeachers() {
     `
       select tp.id, tp.teacher_code, tp.name, tp.email, tp.category, tp.academic_degree, tp.contract, tp.status, tp.review_note, tp.submitted_at, tp.approved_at, tp.updated_at::text
       from teacher_profiles tp
-      left join app_users au on au.clerk_user_id = tp.clerk_user_id
-      where coalesce(au.role, 'docente') = 'docente'
       order by
         case tp.status
           when 'observado' then 0

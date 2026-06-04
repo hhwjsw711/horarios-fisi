@@ -1,6 +1,10 @@
 import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import type { NextRequest } from "next/server";
-import { deleteClerkUser, syncClerkUser } from "@/lib/schedule-db";
+import {
+  type AppRole,
+  deleteClerkUser,
+  syncClerkUser,
+} from "@/lib/schedule-db";
 
 type ClerkEmail = {
   id: string;
@@ -10,8 +14,10 @@ type ClerkEmail = {
 type ClerkUserPayload = {
   id?: string;
   first_name?: string | null;
+  image_url?: string | null;
   last_name?: string | null;
   primary_email_address_id?: string | null;
+  public_metadata?: Record<string, unknown>;
   email_addresses?: ClerkEmail[];
 };
 
@@ -31,7 +37,11 @@ export async function POST(req: NextRequest) {
         await syncClerkUser({
           clerkUserId: data.id,
           email,
+          imageUrl: data.image_url ?? undefined,
           name: displayName(data, email),
+          role: isRole(data.public_metadata?.role)
+            ? data.public_metadata.role
+            : undefined,
         });
       }
     }
@@ -39,6 +49,10 @@ export async function POST(req: NextRequest) {
   } catch {
     return Response.json({ error: "Invalid webhook" }, { status: 400 });
   }
+}
+
+function isRole(value: unknown): value is AppRole {
+  return value === "docente" || value === "direccion" || value === "admin";
 }
 
 function primaryEmail(data: ClerkUserPayload) {
