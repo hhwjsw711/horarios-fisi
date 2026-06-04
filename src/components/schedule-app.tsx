@@ -627,7 +627,7 @@ export function ScheduleApp({
   };
 
   const handleExportXlsx = async () => {
-    await exportXlsx(selectedTeacher);
+    await exportXlsx(selectedTeacher, selectedValidation, academicTerm);
     toast.success("Excel generado.");
   };
 
@@ -4359,66 +4359,565 @@ function escapeCsvCell(value: string) {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-async function exportXlsx(profile: TeacherProfile) {
-  const XLSX = await import("xlsx");
-  const rows = buildExportRows(profile);
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Disponibilidad");
-  XLSX.writeFile(
-    workbook,
-    `horario-${profile.name.toLowerCase().replaceAll(" ", "-")}.xlsx`,
-  );
-}
-
-async function exportPdf(
+async function exportXlsx(
   profile: TeacherProfile,
   validation: Validation,
   academicTerm: string,
 ) {
-  const { jsPDF } = await import("jspdf");
-  const autoTable = (await import("jspdf-autotable")).default;
-  const doc = new jsPDF({ orientation: "landscape" });
-  doc.setFontSize(16);
-  doc.text(`Horario ${academicTerm} - ${profile.name}`, 14, 16);
-  doc.setFontSize(10);
-  doc.text(
-    `${contractRules[profile.contract].label} - ${statusLabel(profile.status)}`,
-    14,
-    24,
+  const XLSX = await import("xlsx");
+  const { rows, merges, rowHeights } = buildPrintedScheduleSheetRows(
+    profile,
+    validation,
+    academicTerm,
   );
-  autoTable(doc, {
-    startY: 32,
-    head: [["Día", "Hora", "Disponible"]],
-    body: buildExportRows(profile).map((row) => [
-      row.Dia,
-      row.Hora,
-      row.Disponible,
-    ]),
+  const worksheet = XLSX.utils.aoa_to_sheet(rows) as XlsxWorksheet;
+  worksheet["!merges"] = merges;
+  worksheet["!cols"] = [
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 16 },
+  ];
+  worksheet["!rows"] = rowHeights.map((hpt) => ({ hpt }));
+  worksheet["!margins"] = {
+    bottom: 0.25,
+    footer: 0.1,
+    header: 0.1,
+    left: 0.25,
+    right: 0.25,
+    top: 0.25,
+  };
+  worksheet["!pageSetup"] = {
+    fitToHeight: 1,
+    fitToPage: true,
+    fitToWidth: 1,
+    orientation: "portrait",
+    paperSize: 9,
+  };
+  stylePrintedScheduleWorksheet(worksheet);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Disponibilidad");
+  XLSX.writeFile(workbook, `${printedScheduleFileName(profile)}.xlsx`, {
+    cellStyles: true,
   });
-  autoTable(doc, {
-    startY: 32,
-    margin: { left: 190 },
-    head: [["Curso", "Escuela"]],
-    body: profile.courses.map((course) => [course.name, course.school]),
-  });
-  doc.text(
-    `Horas: ${validation.selectedHours} - Bloques 4 h: ${validation.blockDays} - Cursos: ${validation.countedCourses}`,
-    14,
-    194,
-  );
-  doc.save(`horario-${profile.name.toLowerCase().replaceAll(" ", "-")}.pdf`);
 }
 
-function buildExportRows(profile: TeacherProfile) {
+async function exportPdf(
+  profile: TeacherProfile,
+  _validation: Validation,
+  academicTerm: string,
+) {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ format: "a4", orientation: "portrait", unit: "mm" });
   const selected = new Set(profile.availability);
-  return days.flatMap((day) =>
-    hours.map((hour) => ({
-      Dia: day.label,
-      Hora: formatHour(hour),
-      Disponible: selected.has(slotKey(day.key, hour)) ? "Sí" : "No",
-    })),
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const tableWidth = pageWidth - margin * 2;
+  const sectionFill: [number, number, number] = [232, 236, 226];
+  const thinFill: [number, number, number] = [244, 246, 241];
+  let y = 10;
+
+  doc.setLineWidth(0.25);
+
+  const setFont = (fontSize: number, bold = false) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(fontSize);
+  };
+
+  const drawCell = (
+    x: number,
+    cellY: number,
+    width: number,
+    height: number,
+    value: string,
+    options: {
+      align?: "left" | "center" | "right";
+      bold?: boolean;
+      fill?: [number, number, number];
+      fontSize?: number;
+      padding?: number;
+    } = {},
+  ) => {
+    const padding = options.padding ?? 1.5;
+    if (options.fill) {
+      doc.setFillColor(...options.fill);
+      doc.rect(x, cellY, width, height, "FD");
+    } else {
+      doc.rect(x, cellY, width, height);
+    }
+    setFont(options.fontSize ?? 8, options.bold);
+    const align = options.align ?? "left";
+    const textX =
+      align === "center"
+        ? x + width / 2
+        : align === "right"
+          ? x + width - padding
+          : x + padding;
+    const lines = doc.splitTextToSize(value, width - padding * 2);
+    const visibleLines = Array.isArray(lines) ? lines.slice(0, 3) : [value];
+    const lineHeight = (options.fontSize ?? 8) * 0.35;
+    const totalTextHeight = Math.max(visibleLines.length - 1, 0) * lineHeight;
+    const textY = cellY + height / 2 - totalTextHeight / 2 + 1.05;
+    doc.text(visibleLines, textX, textY, { align });
+  };
+
+  drawCell(
+    margin,
+    y,
+    tableWidth,
+    19,
+    "UNIVERSIDAD NACIONAL MAYOR DE SAN MARCOS\nFACULTAD DE INGENIERIA DE SISTEMAS E INFORMATICA\nSIGESDAC\nDISPONIBILIDAD DOCENTE",
+    { align: "center", bold: true, fontSize: 7.6, padding: 2 },
   );
+  y += 21;
+
+  drawCell(margin, y, tableWidth, 5.5, "DATOS GENERALES", {
+    bold: true,
+    fill: sectionFill,
+    fontSize: 8,
+  });
+  y += 5.5;
+  drawCell(
+    margin,
+    y,
+    tableWidth * 0.7,
+    7,
+    `Apellidos y Nombres: ${profile.name}`,
+    { fontSize: 8 },
+  );
+  drawCell(
+    margin + tableWidth * 0.7,
+    y,
+    tableWidth * 0.3,
+    7,
+    `Código: ${profile.teacherCode ?? "-"}`,
+    { fontSize: 8 },
+  );
+  y += 10;
+
+  drawCell(margin, y, tableWidth, 5.5, "DISPONIBILIDAD", {
+    bold: true,
+    fill: sectionFill,
+    fontSize: 8,
+  });
+  y += 5.5;
+  const availabilityColumnWidth = tableWidth / 4;
+  ["SEMESTRE", "FECHA", "CATEGORIA", "HORAS"].forEach((label, index) => {
+    drawCell(
+      margin + availabilityColumnWidth * index,
+      y,
+      availabilityColumnWidth,
+      6,
+      label,
+      { align: "center", bold: true, fill: thinFill, fontSize: 8 },
+    );
+  });
+  y += 6;
+  [
+    academicTerm,
+    printedScheduleDate(profile),
+    printedCategory(profile),
+    String(contractRules[profile.contract].requiredHours),
+  ].forEach((value, index) => {
+    drawCell(
+      margin + availabilityColumnWidth * index,
+      y,
+      availabilityColumnWidth,
+      7,
+      value,
+      { align: "center", bold: true, fontSize: 7.6 },
+    );
+  });
+  y += 11;
+
+  drawCell(margin, y, tableWidth, 6, "HORARIOS DE DISPONIBILIDAD", {
+    align: "center",
+    bold: true,
+    fill: sectionFill,
+    fontSize: 8,
+  });
+  y += 6;
+  const hourColumnWidth = 30;
+  const dayColumnWidth = (tableWidth - hourColumnWidth) / days.length;
+  const scheduleRowHeight = 8.3;
+  drawCell(margin, y, hourColumnWidth, 7, "Hora", {
+    align: "center",
+    bold: true,
+    fill: thinFill,
+    fontSize: 8,
+  });
+  days.forEach((day, index) => {
+    drawCell(
+      margin + hourColumnWidth + dayColumnWidth * index,
+      y,
+      dayColumnWidth,
+      7,
+      day.label,
+      { align: "center", bold: true, fill: thinFill, fontSize: 8 },
+    );
+  });
+  y += 7;
+  hours.forEach((hour) => {
+    drawCell(margin, y, hourColumnWidth, scheduleRowHeight, formatHour(hour), {
+      align: "center",
+      fontSize: 7.4,
+    });
+    days.forEach((day, index) => {
+      drawCell(
+        margin + hourColumnWidth + dayColumnWidth * index,
+        y,
+        dayColumnWidth,
+        scheduleRowHeight,
+        selected.has(slotKey(day.key, hour)) ? "X" : "",
+        { align: "center", fontSize: 9 },
+      );
+    });
+    y += scheduleRowHeight;
+  });
+  y += 5;
+
+  drawCell(margin, y, tableWidth, 6, "CURSOS QUE DESEA DICTAR", {
+    align: "center",
+    bold: true,
+    fill: sectionFill,
+    fontSize: 8,
+  });
+  y += 6;
+  const courseColumnWidth = tableWidth * 0.53;
+  const schoolColumnWidth = tableWidth - courseColumnWidth;
+  drawCell(margin, y, courseColumnWidth, 6, "CURSO", {
+    bold: true,
+    fill: thinFill,
+    fontSize: 8,
+  });
+  drawCell(margin + courseColumnWidth, y, schoolColumnWidth, 6, "ESCUELA", {
+    bold: true,
+    fill: thinFill,
+    fontSize: 8,
+  });
+  y += 6;
+  const courseRows = Math.max(4, profile.courses.length);
+  const availableCourseHeight = pageHeight - y - 11;
+  const courseRowHeight = Math.max(
+    5.8,
+    Math.min(8, availableCourseHeight / courseRows),
+  );
+  Array.from({ length: courseRows }).forEach((_, index) => {
+    const course = profile.courses[index];
+    drawCell(
+      margin,
+      y,
+      courseColumnWidth,
+      courseRowHeight,
+      course?.name ?? "",
+      {
+        fontSize: 7.6,
+      },
+    );
+    drawCell(
+      margin + courseColumnWidth,
+      y,
+      schoolColumnWidth,
+      courseRowHeight,
+      course ? institutionalUpper(course.school) : "",
+      { fontSize: 7.6 },
+    );
+    y += courseRowHeight;
+  });
+
+  doc.save(`${printedScheduleFileName(profile)}.pdf`);
+}
+
+type XlsxMerge = {
+  s: { r: number; c: number };
+  e: { r: number; c: number };
+};
+
+type XlsxCell = {
+  s?: Record<string, unknown>;
+};
+
+type XlsxWorksheet = Record<string, unknown> & {
+  "!cols"?: { wch: number }[];
+  "!margins"?: Record<string, number>;
+  "!merges"?: XlsxMerge[];
+  "!pageSetup"?: Record<string, unknown>;
+  "!rows"?: { hpt: number }[];
+};
+
+function buildPrintedScheduleSheetRows(
+  profile: TeacherProfile,
+  validation: Validation,
+  academicTerm: string,
+) {
+  const selected = new Set(profile.availability);
+  const rows: (string | number)[][] = [];
+  const merges: XlsxMerge[] = [];
+  const rowHeights: number[] = [];
+  const addRow = (values: (string | number)[], height = 18) => {
+    rows.push([
+      ...values,
+      ...Array.from({ length: 7 - values.length }, () => ""),
+    ]);
+    rowHeights.push(height);
+    return rows.length - 1;
+  };
+  const merge = (
+    startRow: number,
+    startColumn: number,
+    endRow: number,
+    endColumn: number,
+  ) => {
+    merges.push({
+      e: { c: endColumn, r: endRow },
+      s: { c: startColumn, r: startRow },
+    });
+  };
+
+  const titleRow = addRow(
+    [
+      "UNIVERSIDAD NACIONAL MAYOR DE SAN MARCOS\nFACULTAD DE INGENIERIA DE SISTEMAS E INFORMATICA\nSIGESDAC\nDISPONIBILIDAD DOCENTE",
+    ],
+    54,
+  );
+  merge(titleRow, 0, titleRow, 6);
+
+  const generalHeader = addRow(["DATOS GENERALES"], 18);
+  merge(generalHeader, 0, generalHeader, 6);
+  const generalRow = addRow(
+    [
+      `Apellidos y Nombres: ${profile.name}`,
+      "",
+      "",
+      "",
+      "",
+      `Código: ${profile.teacherCode ?? "-"}`,
+    ],
+    20,
+  );
+  merge(generalRow, 0, generalRow, 4);
+  merge(generalRow, 5, generalRow, 6);
+
+  const availabilityHeader = addRow(["DISPONIBILIDAD"], 18);
+  merge(availabilityHeader, 0, availabilityHeader, 6);
+  const availabilityLabels = addRow(
+    ["SEMESTRE", "", "FECHA", "", "CATEGORIA", "", "HORAS"],
+    20,
+  );
+  merge(availabilityLabels, 0, availabilityLabels, 1);
+  merge(availabilityLabels, 2, availabilityLabels, 3);
+  merge(availabilityLabels, 4, availabilityLabels, 5);
+  const availabilityValues = addRow(
+    [
+      academicTerm,
+      "",
+      printedScheduleDate(profile),
+      "",
+      printedCategory(profile),
+      "",
+      contractRules[profile.contract].requiredHours,
+    ],
+    22,
+  );
+  merge(availabilityValues, 0, availabilityValues, 1);
+  merge(availabilityValues, 2, availabilityValues, 3);
+  merge(availabilityValues, 4, availabilityValues, 5);
+
+  const scheduleHeader = addRow(["HORARIOS DE DISPONIBILIDAD"], 18);
+  merge(scheduleHeader, 0, scheduleHeader, 6);
+  addRow(["Hora", ...days.map((day) => day.label)], 20);
+  hours.forEach((hour) => {
+    addRow(
+      [
+        formatHour(hour),
+        ...days.map((day) => (selected.has(slotKey(day.key, hour)) ? "X" : "")),
+      ],
+      21,
+    );
+  });
+
+  const coursesHeader = addRow(["CURSOS QUE DESEA DICTAR"], 18);
+  merge(coursesHeader, 0, coursesHeader, 6);
+  const courseLabels = addRow(["CURSO", "", "", "", "ESCUELA"], 20);
+  merge(courseLabels, 0, courseLabels, 3);
+  merge(courseLabels, 4, courseLabels, 6);
+  Array.from({ length: Math.max(4, profile.courses.length) }).forEach(
+    (_, index) => {
+      const course = profile.courses[index];
+      const row = addRow(
+        [
+          course?.name ?? "",
+          "",
+          "",
+          "",
+          course ? institutionalUpper(course.school) : "",
+        ],
+        21,
+      );
+      merge(row, 0, row, 3);
+      merge(row, 4, row, 6);
+    },
+  );
+
+  const summaryRow = addRow(
+    [
+      `Horas marcadas: ${validation.selectedHours} / ${contractRules[profile.contract].requiredHours}`,
+      "",
+      `Bloques: ${validation.blockDays}`,
+      "",
+      `Cursos: ${validation.countedCourses}`,
+    ],
+    18,
+  );
+  merge(summaryRow, 0, summaryRow, 1);
+  merge(summaryRow, 2, summaryRow, 3);
+  merge(summaryRow, 4, summaryRow, 6);
+
+  return { merges, rowHeights, rows };
+}
+
+function stylePrintedScheduleWorksheet(worksheet: XlsxWorksheet) {
+  const ref = String(worksheet["!ref"] ?? "");
+  const range = parseXlsxRef(ref);
+  if (!range) {
+    return;
+  }
+  const border = {
+    bottom: { style: "thin" },
+    left: { style: "thin" },
+    right: { style: "thin" },
+    top: { style: "thin" },
+  };
+  for (let row = 0; row <= range.endRow; row += 1) {
+    for (let column = 0; column <= range.endColumn; column += 1) {
+      const address = xlsxAddress(row, column);
+      const cell = worksheet[address] as XlsxCell | undefined;
+      if (!cell) {
+        continue;
+      }
+      cell.s = {
+        alignment: {
+          horizontal: column === 0 ? "left" : "center",
+          vertical: "center",
+          wrapText: true,
+        },
+        border,
+        font: { name: "Arial", sz: 9 },
+      };
+    }
+  }
+  [0, 1, 3, 6, 22].forEach((row) => {
+    for (let column = 0; column <= range.endColumn; column += 1) {
+      const cell = worksheet[xlsxAddress(row, column)] as XlsxCell | undefined;
+      if (cell) {
+        cell.s = {
+          ...(cell.s ?? {}),
+          alignment: {
+            horizontal: "center",
+            vertical: "center",
+            wrapText: true,
+          },
+          fill: { fgColor: { rgb: "E8ECE2" }, patternType: "solid" },
+          font: { bold: true, name: "Arial", sz: row === 0 ? 9 : 10 },
+        };
+      }
+    }
+  });
+}
+
+function parseXlsxRef(ref: string) {
+  const match = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(ref);
+  if (!match) {
+    return null;
+  }
+  return {
+    endColumn: xlsxColumnIndex(match[3]),
+    endRow: Number(match[4]) - 1,
+  };
+}
+
+function xlsxColumnIndex(column: string) {
+  return (
+    column.split("").reduce((total, char) => {
+      return total * 26 + char.charCodeAt(0) - 64;
+    }, 0) - 1
+  );
+}
+
+function xlsxAddress(row: number, column: number) {
+  let value = column + 1;
+  let label = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+  return `${label}${row + 1}`;
+}
+
+function printedScheduleDate(profile: TeacherProfile) {
+  return formatPrintDate(profile.submittedAt ?? profile.updatedAt);
+}
+
+function formatPrintDate(value?: string) {
+  if (!value) {
+    return formatPrintDateValue(new Date());
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return formatPrintDateValue(date);
+}
+
+function formatPrintDateValue(date: Date) {
+  return new Intl.DateTimeFormat("sv-SE", {
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone: "America/Lima",
+    year: "numeric",
+  }).format(date);
+}
+
+function printedCategory(profile: TeacherProfile) {
+  const category = profile.category?.trim();
+  const categoryLabel = category
+    ? (teacherCategoryLabels[category.toUpperCase()] ?? category)
+    : "Sin categoría";
+  const rule = contractRules[profile.contract];
+  return `${categoryLabel} ${rule.short} ${rule.requiredHours}hrs.`;
+}
+
+const teacherCategoryLabels: Record<string, string> = {
+  "1-PRI": "Principal",
+  "2-ASO": "Asociado",
+  "3-AUX": "Auxiliar",
+};
+
+function institutionalUpper(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/^Ing\. de /i, "Ingenieria de ")
+    .toUpperCase();
+}
+
+function printedScheduleFileName(profile: TeacherProfile) {
+  const name = profile.name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return `disponibilidad-docente-${name || "unmsm"}`;
 }
 
 export function SignedOutShell() {
