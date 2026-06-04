@@ -10,6 +10,7 @@ import {
   ChevronRight,
   FileSpreadsheet,
   GraduationCap,
+  History,
   Home,
   Info,
   LockKeyhole,
@@ -105,6 +106,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Toolbar,
@@ -130,7 +132,12 @@ import {
   slotKey,
   type TeacherProfile,
 } from "@/lib/schedule-data";
-import type { AppRole, Onboarding, SchedulePayload } from "@/lib/schedule-db";
+import type {
+  AppRole,
+  Onboarding,
+  ScheduleEvent,
+  SchedulePayload,
+} from "@/lib/schedule-db";
 import { cn } from "@/lib/utils";
 
 type ViewKey = "docente" | "direccion" | "configuracion";
@@ -150,6 +157,7 @@ type ScheduleAction =
   | { action: "observe"; teacherId: string; note: string }
   | { action: "createCourse"; name: string; school: string; isThesis: boolean }
   | { action: "setCourseActive"; courseId: string; active: boolean }
+  | { action: "setAcademicTerm"; academicTerm: string }
   | { action: "submit" };
 
 type ApiError = {
@@ -251,8 +259,12 @@ export function ScheduleApp({
     : allTeachers;
   const selectedTeacher =
     allTeachers.find((teacher) => teacher.id === selectedTeacherId) ?? profile;
+  const selectedEvents = data.events.filter(
+    (event) => event.teacherId === selectedTeacher.id,
+  );
   const validation = validateTeacher(profile);
   const selectedValidation = validateTeacher(selectedTeacher);
+  const academicTerm = data.settings.academicTerm;
   const activeCatalog = data.catalog.filter(
     (course) => course.active !== false,
   );
@@ -341,7 +353,7 @@ export function ScheduleApp({
   };
 
   const handleExportPdf = async () => {
-    await exportPdf(selectedTeacher, selectedValidation);
+    await exportPdf(selectedTeacher, selectedValidation, academicTerm);
     toast.success("PDF generado.");
   };
 
@@ -403,8 +415,20 @@ export function ScheduleApp({
     }
   };
 
+  const handleSetAcademicTerm = async (academicTermValue: string) => {
+    const payload = await request({
+      action: "setAcademicTerm",
+      academicTerm: academicTermValue,
+    });
+    if (payload) {
+      toast.success("Periodo académico actualizado.");
+    }
+    return payload;
+  };
+
   return (
     <ScheduleFrame
+      academicTerm={academicTerm}
       canSignOut={showClerkControls}
       canUseDirection={canUseDirection}
       completion={sidebarCompletion}
@@ -417,8 +441,10 @@ export function ScheduleApp({
     >
       {view === "configuracion" && canUseDirection ? (
         <ConfigurationView
+          academicTerm={academicTerm}
           catalog={data.catalog}
           onCreateCourse={handleCreateCourse}
+          onSetAcademicTerm={handleSetAcademicTerm}
           onSetCourseActive={handleSetCourseActive}
           saving={saving}
           schools={schoolOptions}
@@ -428,6 +454,7 @@ export function ScheduleApp({
           handleExportPdf={handleExportPdf}
           handleExportXlsx={handleExportXlsx}
           handleObserveTeacher={handleObserveTeacher}
+          events={selectedEvents}
           reviewNote={reviewNote}
           selectedTeacher={selectedTeacher}
           selectedTeacherId={selectedTeacher.id}
@@ -456,6 +483,7 @@ export function ScheduleApp({
           schools={schoolOptions}
           setCourseId={setCourseId}
           setSchool={setSchool}
+          academicTerm={academicTerm}
           validation={validation}
         />
       )}
@@ -519,6 +547,7 @@ export function OnboardingRouteApp({ preview = false }: { preview?: boolean }) {
 }
 
 function ScheduleFrame({
+  academicTerm,
   canSignOut,
   canUseDirection,
   children,
@@ -530,6 +559,7 @@ function ScheduleFrame({
   status,
   userName,
 }: {
+  academicTerm: string;
   canSignOut: boolean;
   canUseDirection: boolean;
   children: React.ReactNode;
@@ -564,7 +594,7 @@ function ScheduleFrame({
               <Separator orientation="vertical" className="h-6" />
               <div className="min-w-0">
                 <div className="flex items-center gap-2 text-muted-foreground text-xs">
-                  <span>Semestre académico 2026.2</span>
+                  <span>Semestre académico {academicTerm}</span>
                   <ChevronRight className="size-3" />
                   <span className="truncate">{routeLabel(selectedView)}</span>
                 </div>
@@ -979,6 +1009,7 @@ function RoleChoice({
 }
 
 function DocenteView({
+  academicTerm,
   catalogForSchool,
   courseId,
   handleAddCourse,
@@ -994,6 +1025,7 @@ function DocenteView({
   setSchool,
   validation,
 }: {
+  academicTerm: string;
   catalogForSchool: Course[];
   courseId: string;
   handleAddCourse: () => void;
@@ -1012,13 +1044,13 @@ function DocenteView({
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_330px]">
       <Card className="min-h-0 overflow-hidden">
-        <CardHeader className="flex shrink-0 flex-col gap-2 border-b p-3 md:flex-row md:items-center md:justify-between">
+        <CardHeader className="flex shrink-0 flex-col gap-2 border-b px-3 py-2 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <CardTitle className="truncate font-serif text-xl">
               Disponibilidad docente
             </CardTitle>
             <CardDescription className="truncate">
-              Vista completa del horario 2026.2.
+              Vista completa del horario {academicTerm}.
             </CardDescription>
           </div>
           <Toolbar className="shrink-0 border-0 bg-transparent p-0 shadow-none">
@@ -1107,7 +1139,7 @@ function CoursesEditorCard({
 }) {
   return (
     <Card className="min-h-0 overflow-hidden">
-      <CardHeader className="shrink-0 border-b p-2.5">
+      <CardHeader className="shrink-0 border-b px-2.5 py-2">
         <CardTitle className="truncate text-base">
           Cursos seleccionados
         </CardTitle>
@@ -1115,7 +1147,7 @@ function CoursesEditorCard({
           Carga permitida por contrato.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2 p-2">
+      <CardContent className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2 px-2.5 py-2">
         <div className="grid gap-2">
           <Select value={school} onValueChange={setSchool}>
             <SelectTrigger className="w-full">
@@ -1167,22 +1199,27 @@ function CoursesEditorCard({
 }
 
 function ConfigurationView({
+  academicTerm,
   catalog,
   onCreateCourse,
+  onSetAcademicTerm,
   onSetCourseActive,
   saving,
   schools: schoolOptions,
 }: {
+  academicTerm: string;
   catalog: Course[];
   onCreateCourse: (input: {
     isThesis: boolean;
     name: string;
     school: string;
   }) => Promise<SchedulePayload | null>;
+  onSetAcademicTerm: (academicTerm: string) => Promise<SchedulePayload | null>;
   onSetCourseActive: (courseId: string, active: boolean) => Promise<void>;
   saving: boolean;
   schools: string[];
 }) {
+  const [term, setTerm] = useState(academicTerm);
   const [name, setName] = useState("");
   const [school, setSchool] = useState(schoolOptions[0] ?? "");
   const [customSchool, setCustomSchool] = useState("");
@@ -1198,6 +1235,19 @@ function ConfigurationView({
       setSchool(schoolOptions[0]);
     }
   }, [school, schoolOptions]);
+
+  useEffect(() => {
+    setTerm(academicTerm);
+  }, [academicTerm]);
+
+  const handleTermSubmit = async () => {
+    const normalizedTerm = term.trim();
+    if (normalizedTerm.length < 4) {
+      toast.error("Ingresa un periodo académico válido.");
+      return;
+    }
+    await onSetAcademicTerm(normalizedTerm);
+  };
 
   const handleSubmit = async () => {
     const normalizedName = name.trim();
@@ -1223,13 +1273,38 @@ function ConfigurationView({
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2 text-base">
             <Settings2 className="size-4 text-gold" />
-            Nuevo curso
+            Configuración institucional
           </CardTitle>
           <CardDescription>
-            Catálogo usado por docentes y Dirección.
+            Periodo académico, escuelas y cursos.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 p-2.5">
+        <CardContent className="grid gap-2.5 px-2.5 py-2.5">
+          <Field>
+            <FieldLabel>Periodo académico vigente</FieldLabel>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <Input
+                onChange={(event) => setTerm(event.target.value)}
+                placeholder="Ej. 2026.2"
+                value={term}
+              />
+              <Button
+                disabled={term.trim() === academicTerm}
+                loading={saving}
+                onClick={handleTermSubmit}
+                variant="outline"
+              >
+                Guardar
+              </Button>
+            </div>
+          </Field>
+          <Separator />
+          <div>
+            <h2 className="font-medium text-sm">Nuevo curso</h2>
+            <p className="text-muted-foreground text-xs">
+              Disponible para selección docente.
+            </p>
+          </div>
           <Field>
             <FieldLabel>Escuela existente</FieldLabel>
             <Select value={school} onValueChange={setSchool}>
@@ -1404,7 +1479,7 @@ function TeacherStatusPanel({
   const rule = contractRules[profile.contract];
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b p-2.5">
+      <CardHeader className="border-b px-2.5 py-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -1425,7 +1500,7 @@ function TeacherStatusPanel({
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-2 p-2.5 text-sm">
+      <CardContent className="grid gap-2 px-2.5 py-2 text-sm">
         {profile.reviewNote ? (
           <Alert variant="warning" className="p-2.5">
             <AlertCircle />
@@ -1472,6 +1547,7 @@ function StatusMetric({ label, value }: { label: string; value: string }) {
 }
 
 function DirectorView({
+  events,
   handleExportPdf,
   handleExportXlsx,
   handleObserveTeacher,
@@ -1486,6 +1562,7 @@ function DirectorView({
   teachers,
   validation,
 }: {
+  events: ScheduleEvent[];
   handleExportPdf: () => Promise<void>;
   handleExportXlsx: () => Promise<void>;
   handleObserveTeacher: () => Promise<void>;
@@ -1503,7 +1580,7 @@ function DirectorView({
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_320px]">
       <Card className="min-h-0 overflow-hidden">
-        <CardHeader className="border-b p-3">
+        <CardHeader className="border-b px-3 py-2.5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <CardTitle className="truncate text-base">
@@ -1515,7 +1592,7 @@ function DirectorView({
             </div>
             <Badge variant="secondary">{teachers.length}</Badge>
           </div>
-          <Field className="mt-3 flex-row items-center justify-between gap-3">
+          <Field className="mt-2 flex-row items-center justify-between gap-2 rounded-md bg-muted/25 px-2 py-1.5">
             <div>
               <FieldLabel className="text-xs">Solo pendientes</FieldLabel>
               <FieldDescription>Oculta enviados.</FieldDescription>
@@ -1558,7 +1635,7 @@ function DirectorView({
       </Card>
       <div className="min-h-0">
         <Card className="h-full min-h-0 overflow-hidden">
-          <CardHeader className="flex shrink-0 flex-col gap-2 border-b p-3 lg:flex-row lg:items-center lg:justify-between">
+          <CardHeader className="flex shrink-0 flex-col gap-2 border-b px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <CardTitle className="truncate font-serif text-xl">
                 {selectedTeacher.name}
@@ -1584,18 +1661,15 @@ function DirectorView({
                         Cursos y reglas del docente seleccionado.
                       </SheetDescription>
                     </SheetHeader>
-                    <SheetPanel className="grid gap-3 p-3">
-                      <CoursesReviewCard courses={selectedTeacher.courses} />
-                      <RulePanel
-                        profile={selectedTeacher}
-                        validation={validation}
-                      />
-                      <DirectorReviewCard
+                    <SheetPanel className="min-h-0 p-3">
+                      <DirectorDetailTabs
+                        events={events}
                         onObserveTeacher={handleObserveTeacher}
                         reviewNote={reviewNote}
                         saving={saving}
                         selectedTeacher={selectedTeacher}
                         setReviewNote={setReviewNote}
+                        validation={validation}
                       />
                     </SheetPanel>
                   </SheetContent>
@@ -1619,27 +1693,72 @@ function DirectorView({
           </CardContent>
         </Card>
       </div>
-      <aside className="hidden min-h-0 gap-3 2xl:grid 2xl:grid-rows-[minmax(0,1fr)_auto]">
-        <CoursesReviewCard courses={selectedTeacher.courses} />
-        <div className="grid gap-3">
-          <RulePanel profile={selectedTeacher} validation={validation} />
-          <DirectorReviewCard
-            onObserveTeacher={handleObserveTeacher}
-            reviewNote={reviewNote}
-            saving={saving}
-            selectedTeacher={selectedTeacher}
-            setReviewNote={setReviewNote}
-          />
-        </div>
+      <aside className="hidden min-h-0 2xl:block">
+        <DirectorDetailTabs
+          events={events}
+          onObserveTeacher={handleObserveTeacher}
+          reviewNote={reviewNote}
+          saving={saving}
+          selectedTeacher={selectedTeacher}
+          setReviewNote={setReviewNote}
+          validation={validation}
+        />
       </aside>
     </section>
+  );
+}
+
+function DirectorDetailTabs({
+  events,
+  onObserveTeacher,
+  reviewNote,
+  saving,
+  selectedTeacher,
+  setReviewNote,
+  validation,
+}: {
+  events: ScheduleEvent[];
+  onObserveTeacher: () => Promise<void>;
+  reviewNote: string;
+  saving: boolean;
+  selectedTeacher: TeacherProfile;
+  setReviewNote: (note: string) => void;
+  validation: Validation;
+}) {
+  return (
+    <Tabs defaultValue="revision" className="h-full min-h-0 w-full">
+      <TabsList className="grid w-full grid-cols-3">
+        <TabsTrigger value="revision">Revisión</TabsTrigger>
+        <TabsTrigger value="cursos">Cursos</TabsTrigger>
+        <TabsTrigger value="auditoria">Auditoría</TabsTrigger>
+      </TabsList>
+      <TabsContent
+        value="revision"
+        className="grid min-h-0 gap-3 overflow-y-auto pr-1"
+      >
+        <RulePanel profile={selectedTeacher} validation={validation} />
+        <DirectorReviewCard
+          onObserveTeacher={onObserveTeacher}
+          reviewNote={reviewNote}
+          saving={saving}
+          selectedTeacher={selectedTeacher}
+          setReviewNote={setReviewNote}
+        />
+      </TabsContent>
+      <TabsContent value="cursos" className="min-h-0 overflow-hidden">
+        <CoursesReviewCard courses={selectedTeacher.courses} />
+      </TabsContent>
+      <TabsContent value="auditoria" className="min-h-0 overflow-hidden">
+        <AuditTrailCard events={events} />
+      </TabsContent>
+    </Tabs>
   );
 }
 
 function CoursesReviewCard({ courses }: { courses: Course[] }) {
   return (
     <Card className="min-h-0 overflow-hidden">
-      <CardHeader className="shrink-0 border-b p-3">
+      <CardHeader className="shrink-0 border-b px-3 py-2">
         <CardTitle className="text-base">Cursos del docente</CardTitle>
         <CardDescription>
           Cursos asociados al horario seleccionado.
@@ -1667,13 +1786,13 @@ function DirectorReviewCard({
 }) {
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b p-3">
+      <CardHeader className="border-b px-3 py-2">
         <CardTitle className="text-base">Observación</CardTitle>
         <CardDescription>
           Devuelve el horario al docente con una nota accionable.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-2 p-3">
+      <CardContent className="grid gap-2 px-3 py-2.5">
         {selectedTeacher.reviewNote ? (
           <Alert variant="warning" className="p-2.5">
             <AlertCircle />
@@ -1696,6 +1815,59 @@ function DirectorReviewCard({
         >
           Marcar observado
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AuditTrailCard({ events }: { events: ScheduleEvent[] }) {
+  return (
+    <Card className="min-h-0 overflow-hidden">
+      <CardHeader className="border-b px-3 py-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <History className="size-4 text-gold" />
+          Auditoría
+        </CardTitle>
+        <CardDescription>Últimos cambios registrados.</CardDescription>
+      </CardHeader>
+      <CardContent className="min-h-0 flex-1 p-0">
+        {events.length ? (
+          <ScrollArea scrollFade scrollbarGutter>
+            <div className="grid gap-0.5 p-2">
+              {events.slice(0, 12).map((event) => (
+                <div
+                  className="rounded-md border bg-muted/25 p-2 text-xs"
+                  key={event.id}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">
+                      {eventLabel(event.eventType)}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground tabular-nums">
+                      {formatEventDate(event.createdAt)}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    {event.actorName}
+                    {eventSummary(event) ? ` · ${eventSummary(event)}` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        ) : (
+          <Empty className="h-full py-8">
+            <EmptyMedia variant="icon">
+              <History />
+            </EmptyMedia>
+            <EmptyHeader>
+              <EmptyTitle>Sin actividad</EmptyTitle>
+              <EmptyDescription>
+                Los cambios del docente aparecerán aquí.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
       </CardContent>
     </Card>
   );
@@ -1862,14 +2034,14 @@ function RulePanel({
 
   return (
     <Card className="min-h-0 overflow-hidden">
-      <CardHeader className="space-y-1 p-3">
+      <CardHeader className="space-y-0.5 px-3 py-2.5">
         <CardTitle className="flex items-center gap-2 text-base">
           <Info className="size-4 text-gold" />
           Reglas activas
         </CardTitle>
         <CardDescription>{rule.text}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3 p-3 pt-0 text-sm">
+      <CardContent className="flex flex-col gap-2.5 px-3 pb-2.5 pt-0 text-sm">
         {rows.map((row) => (
           <div
             className="flex items-center justify-between gap-3"
@@ -2064,6 +2236,51 @@ function routeLabel(view: ViewKey) {
   return view === "direccion" ? "Dirección" : "Docente";
 }
 
+function eventLabel(eventType: string) {
+  const labels: Record<string, string> = {
+    "director.observed_schedule": "Observación registrada",
+    "teacher.availability_changed": "Disponibilidad actualizada",
+    "teacher.contract_changed": "Clase docente cambiada",
+    "teacher.course_added": "Curso agregado",
+    "teacher.course_removed": "Curso retirado",
+    "teacher.submitted_schedule": "Horario enviado",
+    "onboarding.completed": "Perfil configurado",
+  };
+  return labels[eventType] ?? eventType;
+}
+
+function eventSummary(event: ScheduleEvent) {
+  if (typeof event.metadata.note === "string") {
+    return event.metadata.note;
+  }
+  if (typeof event.metadata.submittedAt === "string") {
+    return event.metadata.submittedAt;
+  }
+  if (typeof event.metadata.contract === "string") {
+    return contractRules[event.metadata.contract as ContractKey]?.label;
+  }
+  if (typeof event.metadata.slots === "number") {
+    return `${event.metadata.slots} bloques marcados`;
+  }
+  if (typeof event.metadata.courseId === "string") {
+    return event.metadata.courseId;
+  }
+  return "";
+}
+
+function formatEventDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("es-PE", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 async function exportXlsx(profile: TeacherProfile) {
   const XLSX = await import("xlsx");
   const rows = buildExportRows(profile);
@@ -2076,12 +2293,16 @@ async function exportXlsx(profile: TeacherProfile) {
   );
 }
 
-async function exportPdf(profile: TeacherProfile, validation: Validation) {
+async function exportPdf(
+  profile: TeacherProfile,
+  validation: Validation,
+  academicTerm: string,
+) {
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
   const doc = new jsPDF({ orientation: "landscape" });
   doc.setFontSize(16);
-  doc.text(`Horario 2026.2 - ${profile.name}`, 14, 16);
+  doc.text(`Horario ${academicTerm} - ${profile.name}`, 14, 16);
   doc.setFontSize(10);
   doc.text(
     `${contractRules[profile.contract].label} - ${statusLabel(profile.status)}`,

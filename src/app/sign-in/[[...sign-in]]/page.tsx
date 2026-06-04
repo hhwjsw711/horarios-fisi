@@ -25,7 +25,7 @@ export default function SignInPage() {
         </div>
         <p className="max-w-lg text-muted-foreground">
           Registro de disponibilidad docente y revisión académica para el
-          semestre 2026.2.
+          semestre vigente.
         </p>
       </section>
       <section className="flex items-center justify-center">

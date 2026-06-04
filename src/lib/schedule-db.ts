@@ -34,9 +34,25 @@ export type SchedulePayload = {
   teachers: TeacherProfile[];
   catalog: Course[];
   schools: string[];
+  settings: ScheduleSettings;
+  events: ScheduleEvent[];
   onboarding: Onboarding;
   canUseDirection: boolean;
   userName: string;
+};
+
+export type ScheduleSettings = {
+  academicTerm: string;
+};
+
+export type ScheduleEvent = {
+  id: number;
+  teacherId: string;
+  actorUserId: string;
+  actorName: string;
+  eventType: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
 };
 
 export class ScheduleError extends Error {
@@ -86,6 +102,18 @@ type AvailabilityRow = {
   day_key: DayKey;
   hour: number;
 };
+
+type ScheduleEventRow = {
+  id: number;
+  teacher_id: string;
+  actor_user_id: string;
+  actor_name: string | null;
+  event_type: string;
+  metadata: Record<string, unknown> | string;
+  created_at: string;
+};
+
+const defaultAcademicTerm = "2026.2";
 
 let seedReady: Promise<void> | undefined;
 
@@ -151,6 +179,13 @@ export async function ensureScheduleSchema() {
     )
   `);
   await sql.query(`
+    create table if not exists app_settings (
+      key text primary key,
+      value text not null,
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await sql.query(`
     create table if not exists schedule_events (
       id bigserial primary key,
       teacher_id text not null,
@@ -165,6 +200,10 @@ export async function ensureScheduleSchema() {
   );
   await sql.query(
     "alter table courses add column if not exists active boolean not null default true",
+  );
+  await sql.query(
+    "insert into app_settings (key, value) values ('academic_term', $1) on conflict (key) do nothing",
+    [defaultAcademicTerm],
   );
 }
 
@@ -240,12 +279,19 @@ export async function getSchedulePayload(
   const profile = await ensureTeacherProfile(profileId, identity);
   const catalog = await readCourseCatalog();
   const schoolOptions = await readSchools();
+  const settings = await readSettings();
   const teachers = user.role === "direccion" ? await readTeachers() : [profile];
+  const events =
+    user.role === "direccion"
+      ? await readScheduleEvents()
+      : await readScheduleEvents(profile.id);
   return {
     profile,
     teachers,
     catalog,
     schools: schoolOptions,
+    settings,
+    events,
     onboarding: {
       role: user.role,
       school: user.school,
@@ -431,6 +477,35 @@ export async function setCourseActive(
   }
   await recordEvent(identity, courseId, "catalog.course_status_changed", {
     active,
+  });
+  return getSchedulePayload(identity);
+}
+
+export async function setAcademicTerm(
+  identity: ScheduleIdentity,
+  academicTerm: string,
+) {
+  if (identity.preview) {
+    return getPreviewPayload(identity);
+  }
+  await ensureDirection(identity);
+  const normalizedTerm = academicTerm.trim();
+  if (normalizedTerm.length < 4 || normalizedTerm.length > 24) {
+    throw new ScheduleError("Periodo académico no válido.");
+  }
+  const sql = getSql();
+  await sql.query(
+    `
+      insert into app_settings (key, value, updated_at)
+      values ('academic_term', $1, now())
+      on conflict (key) do update set
+        value = excluded.value,
+        updated_at = now()
+    `,
+    [normalizedTerm],
+  );
+  await recordEvent(identity, "settings", "settings.academic_term_changed", {
+    academicTerm: normalizedTerm,
   });
   return getSchedulePayload(identity);
 }
@@ -659,6 +734,52 @@ async function readCourse(id: string) {
   return rows[0];
 }
 
+async function readSettings(): Promise<ScheduleSettings> {
+  const sql = getSql();
+  const rows = (await sql.query(
+    "select value from app_settings where key = 'academic_term' limit 1",
+  )) as { value: string }[];
+  return {
+    academicTerm: rows[0]?.value ?? defaultAcademicTerm,
+  };
+}
+
+async function readScheduleEvents(teacherId?: string) {
+  const sql = getSql();
+  const rows = (await sql.query(
+    `
+      select
+        se.id::int,
+        se.teacher_id,
+        se.actor_user_id,
+        coalesce(au.name, se.actor_user_id) as actor_name,
+        se.event_type,
+        se.metadata,
+        se.created_at::text
+      from schedule_events se
+      left join app_users au on au.clerk_user_id = se.actor_user_id
+      where ($1::text is null and exists (
+        select 1 from teacher_profiles tp where tp.id = se.teacher_id
+      )) or se.teacher_id = $1
+      order by se.created_at desc
+      limit 100
+    `,
+    [teacherId ?? null],
+  )) as ScheduleEventRow[];
+  return rows.map((row) => ({
+    id: row.id,
+    teacherId: row.teacher_id,
+    actorUserId: row.actor_user_id,
+    actorName: row.actor_name ?? row.actor_user_id,
+    eventType: row.event_type,
+    metadata:
+      typeof row.metadata === "string"
+        ? (JSON.parse(row.metadata) as Record<string, unknown>)
+        : row.metadata,
+    createdAt: row.created_at,
+  }));
+}
+
 async function readSchools() {
   const sql = getSql();
   const rows = (await sql.query(
@@ -703,6 +824,20 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
     teachers: seedTeachers,
     catalog: courseCatalog,
     schools,
+    settings: {
+      academicTerm: defaultAcademicTerm,
+    },
+    events: [
+      {
+        id: 1,
+        teacherId: seedTeachers[0].id,
+        actorUserId: "preview-director",
+        actorName: "Dirección",
+        eventType: "teacher.submitted_schedule",
+        metadata: { submittedAt: "03 Jun 2026, 18:12" },
+        createdAt: new Date().toISOString(),
+      },
+    ],
     onboarding: {
       role: "direccion",
       school: "Ing. de Sistemas",

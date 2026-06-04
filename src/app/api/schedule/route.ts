@@ -11,6 +11,7 @@ import {
   removeCourse,
   ScheduleError,
   type ScheduleIdentity,
+  setAcademicTerm,
   setAvailability,
   setContract,
   setCourseActive,
@@ -108,6 +109,14 @@ export async function PATCH(request: NextRequest) {
       }
       return NextResponse.json(
         await setCourseActive(identity, body.courseId, Boolean(body.active)),
+      );
+    }
+    if (body.action === "setAcademicTerm") {
+      if (typeof body.academicTerm !== "string") {
+        return NextResponse.json({ error: "Invalid term" }, { status: 400 });
+      }
+      return NextResponse.json(
+        await setAcademicTerm(identity, body.academicTerm),
       );
     }
     if (body.action === "submit") {
