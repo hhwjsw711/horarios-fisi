@@ -45,6 +45,7 @@ export type ScheduleIdentity = {
 export type SchedulePayload = {
   currentUserId: string;
   profile: TeacherProfile;
+  teacherMode: "official" | "sandbox" | "administrative" | "preview";
   teachers: TeacherProfile[];
   users: ScheduleUser[];
   catalog: Course[];
@@ -164,6 +165,17 @@ type AvailabilityRow = {
   hour: number;
 };
 
+type SandboxTeacherRow = {
+  id: string;
+  owner_user_id: string;
+  name: string;
+  email: string;
+  contract: ContractKey;
+  status: TeacherProfile["status"];
+  submitted_at: string | null;
+  updated_at: string | null;
+};
+
 type ScheduleEventRow = {
   id: number;
   teacher_id: string;
@@ -258,6 +270,35 @@ export async function ensureScheduleSchema() {
       created_at timestamptz not null default now()
     )
   `);
+  await sql.query(`
+    create table if not exists teacher_sandboxes (
+      id text primary key,
+      owner_user_id text not null unique references app_users(clerk_user_id) on delete cascade,
+      name text not null,
+      email text not null,
+      contract text not null check (contract in ('full', 'partial20', 'partial10')),
+      status text not null default 'borrador' check (status in ('enviado', 'borrador', 'observado', 'aprobado')),
+      submitted_at text,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await sql.query(`
+    create table if not exists teacher_sandbox_availability (
+      sandbox_id text not null references teacher_sandboxes(id) on delete cascade,
+      day_key text not null,
+      hour int not null,
+      primary key (sandbox_id, day_key, hour)
+    )
+  `);
+  await sql.query(`
+    create table if not exists teacher_sandbox_courses (
+      sandbox_id text not null references teacher_sandboxes(id) on delete cascade,
+      course_id text not null references courses(id) on delete restrict,
+      position int not null default 0,
+      primary key (sandbox_id, course_id)
+    )
+  `);
   await sql.query(
     "alter table teacher_profiles add column if not exists review_note text not null default ''",
   );
@@ -348,6 +389,14 @@ export async function verifyScheduleSchema() {
   const settings = (await sql.query(
     "select key from app_settings where key in ('academic_term', 'period_closed') order by key",
   )) as { key: string }[];
+  const sandboxTables = (await sql.query(
+    `
+      select table_name
+      from information_schema.tables
+      where table_schema = 'public'
+        and table_name in ('teacher_sandboxes', 'teacher_sandbox_availability', 'teacher_sandbox_courses')
+    `,
+  )) as { table_name: string }[];
   const teacherColumnNames = new Set(
     teacherColumns.map((row) => row.column_name),
   );
@@ -357,6 +406,7 @@ export async function verifyScheduleSchema() {
   const settingKeys = new Set(settings.map((row) => row.key));
   const statusConstraint = teacherConstraints[0]?.definition ?? "";
   const roleConstraint = appUserConstraints[0]?.definition ?? "";
+  const sandboxTableNames = new Set(sandboxTables.map((row) => row.table_name));
   return {
     appUsersAdminRole: roleConstraint.includes("admin"),
     appUsersImageUrlColumn: appUserColumnNames.has("image_url"),
@@ -366,6 +416,10 @@ export async function verifyScheduleSchema() {
     statusAllowsApproved: statusConstraint.includes("aprobado"),
     academicTermSetting: settingKeys.has("academic_term"),
     periodClosedSetting: settingKeys.has("period_closed"),
+    teacherSandboxTables:
+      sandboxTableNames.has("teacher_sandboxes") &&
+      sandboxTableNames.has("teacher_sandbox_availability") &&
+      sandboxTableNames.has("teacher_sandbox_courses"),
   };
 }
 
@@ -454,15 +508,26 @@ export async function getSchedulePayload(
   }
   await ensureSeeded();
   const user = await ensureUser(identity);
-  const profileId = identity.clerkUserId;
   const officialProfile = await linkOfficialTeacherProfile(identity);
   const canUseDirection = canUseDirectionRole(user.role);
   const canUseAdmin = user.role === "admin";
+  const sandboxProfile =
+    !officialProfile && canUseAdmin
+      ? await ensureTeacherSandbox(identity, user)
+      : null;
   const profile =
     officialProfile ??
+    sandboxProfile ??
     (canUseDirection
       ? administrativeProfile(user)
-      : await ensureTeacherProfile(profileId, identity));
+      : await ensureTeacherProfile(identity.clerkUserId, identity));
+  const teacherMode = officialProfile
+    ? "official"
+    : sandboxProfile
+      ? "sandbox"
+      : canUseDirection
+        ? "administrative"
+        : "official";
   const catalog = await readCourseCatalog();
   const schoolOptions = await readSchools();
   const settings = await readSettings();
@@ -474,6 +539,7 @@ export async function getSchedulePayload(
   return {
     currentUserId: identity.clerkUserId,
     profile,
+    teacherMode,
     teachers,
     users,
     catalog,
@@ -613,18 +679,34 @@ export async function setContract(
   }
   await ensurePeriodOpen();
   const sql = getSql();
-  const profileId = await getProfileId(identity);
+  const workspace = await getWritableTeacherWorkspace(identity);
+  if (workspace.sandbox) {
+    await sql.query(
+      `
+        update teacher_sandboxes
+        set contract = $2, status = 'borrador', submitted_at = null, updated_at = now()
+        where id = $1
+      `,
+      [workspace.profile.id, contract],
+    );
+    return getSchedulePayload(identity);
+  }
   await sql.query(
     `
       update teacher_profiles
       set contract = $2, status = 'borrador', review_note = '', approved_at = null, updated_at = now()
       where id = $1
     `,
-    [profileId, contract],
+    [workspace.profile.id, contract],
   );
-  await recordEvent(identity, profileId, "teacher.contract_changed", {
-    contract,
-  });
+  await recordEvent(
+    identity,
+    workspace.profile.id,
+    "teacher.contract_changed",
+    {
+      contract,
+    },
+  );
   return getSchedulePayload(identity);
 }
 
@@ -636,16 +718,34 @@ export async function setAvailability(
     return getPreviewPayload(identity);
   }
   await ensurePeriodOpen();
-  const profileId = await getProfileId(identity);
-  await replaceAvailability(profileId, normalizeAvailability(availability));
+  const workspace = await getWritableTeacherWorkspace(identity);
+  const normalizedAvailability = normalizeAvailability(availability);
+  if (workspace.sandbox) {
+    await replaceSandboxAvailability(
+      workspace.profile.id,
+      normalizedAvailability,
+    );
+    const sql = getSql();
+    await sql.query(
+      "update teacher_sandboxes set status = 'borrador', submitted_at = null, updated_at = now() where id = $1",
+      [workspace.profile.id],
+    );
+    return getSchedulePayload(identity);
+  }
+  await replaceAvailability(workspace.profile.id, normalizedAvailability);
   const sql = getSql();
   await sql.query(
     "update teacher_profiles set status = 'borrador', review_note = '', approved_at = null, updated_at = now() where id = $1",
-    [profileId],
+    [workspace.profile.id],
   );
-  await recordEvent(identity, profileId, "teacher.availability_changed", {
-    slots: normalizeAvailability(availability).length,
-  });
+  await recordEvent(
+    identity,
+    workspace.profile.id,
+    "teacher.availability_changed",
+    {
+      slots: normalizedAvailability.length,
+    },
+  );
   return getSchedulePayload(identity);
 }
 
@@ -653,10 +753,13 @@ export async function addCourse(identity: ScheduleIdentity, courseId: string) {
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  const profileId = await getProfileId(identity);
+  const workspace = await getWritableTeacherWorkspace(identity);
+  if (workspace.sandbox) {
+    return addCourseToSandbox(identity, workspace.profile.id, courseId);
+  }
   return addCourseToTeacher(
     identity,
-    profileId,
+    workspace.profile.id,
     courseId,
     "teacher.course_added",
   );
@@ -714,6 +817,40 @@ async function addCourseToTeacher(
       courseId,
       courseName: course.name,
     });
+  }
+  return getSchedulePayload(identity);
+}
+
+async function addCourseToSandbox(
+  identity: ScheduleIdentity,
+  sandboxId: string,
+  courseId: string,
+) {
+  await ensurePeriodOpen();
+  const sql = getSql();
+  const course = await readCourse(courseId);
+  if (!course) {
+    throw new ScheduleError("Curso no válido.");
+  }
+  const profile = await readTeacherSandbox(sandboxId);
+  const assignment = courseAssignmentState(profile, mapCourseRow(course));
+  if (assignment.limitReached) {
+    throw new ScheduleError("Ya alcanzaste el máximo de cursos permitido.");
+  }
+  await sql.query(
+    `
+      insert into teacher_sandbox_courses (sandbox_id, course_id, position)
+      values (
+        $1,
+        $2,
+        coalesce((select max(position) + 1 from teacher_sandbox_courses where sandbox_id = $1), 1)
+      )
+      on conflict (sandbox_id, course_id) do nothing
+    `,
+    [sandboxId, courseId],
+  );
+  if (!assignment.alreadyAssigned) {
+    await markSandboxDraft(sandboxId);
   }
   return getSchedulePayload(identity);
 }
@@ -887,10 +1024,13 @@ export async function removeCourse(
   if (identity.preview) {
     return getPreviewPayload(identity);
   }
-  const profileId = await getProfileId(identity);
+  const workspace = await getWritableTeacherWorkspace(identity);
+  if (workspace.sandbox) {
+    return removeCourseFromSandbox(identity, workspace.profile.id, courseId);
+  }
   return removeCourseFromTeacher(
     identity,
-    profileId,
+    workspace.profile.id,
     courseId,
     "teacher.course_removed",
   );
@@ -1004,6 +1144,24 @@ async function removeCourseFromTeacher(
   return getSchedulePayload(identity);
 }
 
+async function removeCourseFromSandbox(
+  identity: ScheduleIdentity,
+  sandboxId: string,
+  courseId: string,
+) {
+  await ensurePeriodOpen();
+  await readTeacherSandbox(sandboxId);
+  const sql = getSql();
+  const rows = (await sql.query(
+    "delete from teacher_sandbox_courses where sandbox_id = $1 and course_id = $2 returning course_id",
+    [sandboxId, courseId],
+  )) as { course_id: string }[];
+  if (rows[0]) {
+    await markSandboxDraft(sandboxId);
+  }
+  return getSchedulePayload(identity);
+}
+
 async function readTeacherCourseImportTeachers() {
   const sql = getSql();
   return (await sql.query(
@@ -1110,6 +1268,14 @@ async function markTeacherDraft(teacherId: string) {
   );
 }
 
+async function markSandboxDraft(sandboxId: string) {
+  const sql = getSql();
+  await sql.query(
+    "update teacher_sandboxes set status = 'borrador', submitted_at = null, updated_at = now() where id = $1",
+    [sandboxId],
+  );
+}
+
 export async function observeSchedule(
   identity: ScheduleIdentity,
   teacherId: string,
@@ -1184,23 +1350,41 @@ export async function submitSchedule(identity: ScheduleIdentity) {
   }
   await ensurePeriodOpen();
   const sql = getSql();
-  const profileId = await getProfileId(identity);
-  const profile = await readTeacher(profileId);
+  const workspace = await getWritableTeacherWorkspace(identity);
+  const profile = workspace.sandbox
+    ? await readTeacherSandbox(workspace.profile.id)
+    : await readTeacher(workspace.profile.id);
   if (!teacherMeetsRules(profile)) {
     throw new ScheduleError("Aún faltan reglas por completar.");
   }
   const submittedAt = formatTimestamp();
+  if (workspace.sandbox) {
+    await sql.query(
+      `
+        update teacher_sandboxes
+        set status = 'enviado', submitted_at = $2, updated_at = now()
+        where id = $1
+      `,
+      [workspace.profile.id, submittedAt],
+    );
+    return getSchedulePayload(identity);
+  }
   await sql.query(
     `
       update teacher_profiles
       set status = 'enviado', review_note = '', submitted_at = $2, approved_at = null, updated_at = now()
       where id = $1
     `,
-    [profileId, submittedAt],
+    [workspace.profile.id, submittedAt],
   );
-  await recordEvent(identity, profileId, "teacher.submitted_schedule", {
-    submittedAt,
-  });
+  await recordEvent(
+    identity,
+    workspace.profile.id,
+    "teacher.submitted_schedule",
+    {
+      submittedAt,
+    },
+  );
   return getSchedulePayload(identity);
 }
 
@@ -1516,6 +1700,7 @@ function getPreviewPayload(identity: ScheduleIdentity): SchedulePayload {
   return {
     currentUserId: identity.clerkUserId,
     profile,
+    teacherMode: "preview",
     teachers: seedTeachers,
     users: [
       {
@@ -1712,21 +1897,53 @@ function administrativeProfile(user: AppUserRow): TeacherProfile {
   };
 }
 
-async function getProfileId(identity: ScheduleIdentity) {
+async function getWritableTeacherWorkspace(identity: ScheduleIdentity) {
   await ensureSeeded();
-  if (identity.preview) {
-    return "me";
-  }
   const user = await ensureUser(identity);
   const officialProfile = await linkOfficialTeacherProfile(identity);
   if (officialProfile) {
-    return officialProfile.id;
+    return { profile: officialProfile, sandbox: false };
+  }
+  if (user.role === "admin") {
+    return {
+      profile: await ensureTeacherSandbox(identity, user),
+      sandbox: true,
+    };
   }
   if (canUseDirectionRole(user.role)) {
     throw new ScheduleError("Tu cuenta no tiene perfil docente asignado.", 403);
   }
   const profile = await ensureTeacherProfile(identity.clerkUserId, identity);
-  return profile.id;
+  return { profile, sandbox: false };
+}
+
+async function ensureTeacherSandbox(
+  identity: ScheduleIdentity,
+  user: AppUserRow,
+) {
+  const sql = getSql();
+  const id = sandboxTeacherId(identity.clerkUserId);
+  await sql.query(
+    `
+      insert into teacher_sandboxes (id, owner_user_id, name, email, contract, status)
+      values ($1, $2, $3, $4, 'full', 'borrador')
+      on conflict (owner_user_id) do update set
+        name = excluded.name,
+        email = excluded.email,
+        updated_at = case
+          when teacher_sandboxes.name is distinct from excluded.name
+            or teacher_sandboxes.email is distinct from excluded.email
+          then now()
+          else teacher_sandboxes.updated_at
+        end
+    `,
+    [id, identity.clerkUserId, user.name, user.email],
+  );
+  return readTeacherSandbox(id);
+}
+
+function sandboxTeacherId(clerkUserId: string) {
+  return `sandbox:${clerkUserId}`;
 }
 
 async function readTeachers() {
@@ -1763,6 +1980,23 @@ async function readTeacher(id: string) {
     throw new ScheduleError("Docente no encontrado.", 404);
   }
   return inflateTeacher(rows[0]);
+}
+
+async function readTeacherSandbox(id: string) {
+  const sql = getSql();
+  const rows = (await sql.query(
+    `
+      select id, owner_user_id, name, email, contract, status, submitted_at, updated_at::text
+      from teacher_sandboxes
+      where id = $1
+      limit 1
+    `,
+    [id],
+  )) as SandboxTeacherRow[];
+  if (!rows[0]) {
+    throw new ScheduleError("Sandbox docente no encontrado.", 404);
+  }
+  return inflateTeacherSandbox(rows[0]);
 }
 
 async function inflateTeacher(row: TeacherRow): Promise<TeacherProfile> {
@@ -1816,6 +2050,47 @@ async function inflateTeacher(row: TeacherRow): Promise<TeacherProfile> {
   };
 }
 
+async function inflateTeacherSandbox(
+  row: SandboxTeacherRow,
+): Promise<TeacherProfile> {
+  const sql = getSql();
+  const courseRows = (await sql.query(
+    `
+      select c.id, c.code, c.name, c.school, c.cycle, c.credits, c.course_type, c.curriculum, c.is_thesis
+      from teacher_sandbox_courses sc
+      join courses c on c.id = sc.course_id
+      where sc.sandbox_id = $1
+      order by sc.position asc, c.name asc
+    `,
+    [row.id],
+  )) as CourseRow[];
+  const availabilityRows = (await sql.query(
+    `
+      select day_key, hour
+      from teacher_sandbox_availability
+      where sandbox_id = $1
+      order by day_key asc, hour asc
+    `,
+    [row.id],
+  )) as AvailabilityRow[];
+  return {
+    id: row.id,
+    teacherCode: "QA",
+    name: row.name,
+    email: row.email,
+    category: "Modo prueba",
+    academicDegree: "Admin",
+    contract: row.contract,
+    status: row.status,
+    submittedAt: row.submitted_at ?? undefined,
+    updatedAt: row.updated_at ?? undefined,
+    courses: courseRows.map((course) => mapCourseRow(course)),
+    availability: availabilityRows.map((item) =>
+      slotKey(item.day_key, item.hour),
+    ),
+  };
+}
+
 async function replaceAvailability(teacherId: string, availability: string[]) {
   const sql = getSql();
   await sql.query("delete from teacher_availability where teacher_id = $1", [
@@ -1841,6 +2116,42 @@ async function replaceAvailability(teacherId: string, availability: string[]) {
   await sql.query(
     `
       insert into teacher_availability (teacher_id, day_key, hour)
+      values ${values}
+      on conflict do nothing
+    `,
+    params,
+  );
+}
+
+async function replaceSandboxAvailability(
+  sandboxId: string,
+  availability: string[],
+) {
+  const sql = getSql();
+  await sql.query(
+    "delete from teacher_sandbox_availability where sandbox_id = $1",
+    [sandboxId],
+  );
+  const rows = availability
+    .map((key) => {
+      const [day, hour] = key.split("-");
+      return { day, hour: Number(hour) };
+    })
+    .filter((item) => item.day && Number.isFinite(item.hour));
+  if (!rows.length) {
+    return;
+  }
+  const params: Array<string | number> = [];
+  const values = rows
+    .map((item, index) => {
+      params.push(sandboxId, item.day, item.hour);
+      const start = index * 3;
+      return `($${start + 1}, $${start + 2}, $${start + 3})`;
+    })
+    .join(", ");
+  await sql.query(
+    `
+      insert into teacher_sandbox_availability (sandbox_id, day_key, hour)
       values ${values}
       on conflict do nothing
     `,

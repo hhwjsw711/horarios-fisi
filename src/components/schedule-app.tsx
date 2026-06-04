@@ -392,6 +392,7 @@ export function ScheduleApp({
   const completion = completionFor(profile, validation);
   const canUseAdmin = data.canUseAdmin;
   const canUseDirection = data.canUseDirection;
+  const teacherMode = data.teacherMode;
   const showClerkControls = process.env.NODE_ENV === "production" && !preview;
   const approvedCount = data.teachers.filter(
     (teacher) => teacher.status === "aprobado",
@@ -617,7 +618,11 @@ export function ScheduleApp({
     }
     const payload = await request({ action: "submit" });
     if (payload) {
-      toast.success("Horario enviado para revisión.");
+      toast.success(
+        teacherMode === "sandbox"
+          ? "Prueba enviada. No afecta revisión oficial."
+          : "Horario enviado para revisión.",
+      );
     }
   };
 
@@ -986,6 +991,7 @@ export function ScheduleApp({
           setCourseId={setCourseId}
           setSchool={setSchool}
           statusSaving={availabilitySaving || profileSaving}
+          teacherMode={teacherMode}
           validation={validation}
         />
       )}
@@ -1501,6 +1507,7 @@ function DocenteView({
   setCourseId,
   setSchool,
   statusSaving,
+  teacherMode,
   validation,
 }: {
   academicTerm: string;
@@ -1520,6 +1527,7 @@ function DocenteView({
   setCourseId: (id: string) => void;
   setSchool: (school: string) => void;
   statusSaving: boolean;
+  teacherMode: SchedulePayload["teacherMode"];
   validation: Validation;
 }) {
   const selectedCourse = catalogForSchool.find(
@@ -1550,15 +1558,26 @@ function DocenteView({
     0,
   );
   const hasKnownCredits = profile.courses.some((course) => course.credits);
+  const sandboxMode = teacherMode === "sandbox";
 
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_330px]">
       <Card className="min-h-0 overflow-hidden">
         <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b px-3 py-1.5 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <CardTitle className="truncate font-serif text-xl">
-              Disponibilidad docente
-            </CardTitle>
+            <div className="flex min-w-0 items-center gap-2">
+              <CardTitle className="truncate font-serif text-xl">
+                Disponibilidad docente
+              </CardTitle>
+              {sandboxMode ? (
+                <Badge
+                  variant="outline"
+                  className="border-warning text-warning"
+                >
+                  Modo prueba
+                </Badge>
+              ) : null}
+            </div>
             <CardDescription className="truncate">
               Vista completa del horario {academicTerm}.
             </CardDescription>
@@ -1611,6 +1630,15 @@ function DocenteView({
         </CardContent>
       </Card>
       <aside className="grid min-h-0 content-start gap-3 overflow-hidden">
+        {sandboxMode ? (
+          <Alert className="rounded-md p-2" variant="warning">
+            <Info />
+            <AlertTitle>Sandbox docente</AlertTitle>
+            <AlertDescription className="text-xs">
+              Tus horas, cursos y envío quedan separados de los docentes reales.
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <CoursesEditorCard
           catalogForSchool={catalogForSchool}
           addCourseDisabled={addCourseDisabled}
