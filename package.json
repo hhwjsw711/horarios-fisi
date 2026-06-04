@@ -13,6 +13,7 @@
     "test": "bun test",
     "check": "bun run lint && bun run test && bun run build",
     "db:migrate": "bun scripts/migrate.ts",
+    "smoke": "bun scripts/smoke.ts",
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write"
