@@ -9,6 +9,7 @@ import {
   completeOnboarding,
   createCourse,
   getSchedulePayload,
+  importTeacherCourses,
   observeSchedule,
   removeCourse,
   ScheduleError,
@@ -167,6 +168,18 @@ export async function PATCH(request: NextRequest) {
     if (body.action === "setPeriodClosed") {
       return NextResponse.json(
         await setPeriodClosed(identity, Boolean(body.closed)),
+      );
+    }
+    if (body.action === "importTeacherCourses") {
+      if (typeof body.csv !== "string") {
+        return NextResponse.json({ error: "Invalid CSV" }, { status: 400 });
+      }
+      return NextResponse.json(
+        await importTeacherCourses(identity, {
+          apply: Boolean(body.apply),
+          csv: body.csv,
+          replaceTeachers: Boolean(body.replaceTeachers),
+        }),
       );
     }
     if (body.action === "submit") {

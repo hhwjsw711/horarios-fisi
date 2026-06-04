@@ -15,6 +15,14 @@ import {
   courseAssignmentState,
   validateTeacherRules,
 } from "@/lib/schedule-rules";
+import {
+  buildTeacherCourseImport,
+  parseTeacherCourseCsv,
+  type TeacherCourseImportCourse,
+  type TeacherCourseImportRecord,
+  type TeacherCourseImportResult,
+  type TeacherCourseImportTeacher,
+} from "@/lib/teacher-course-import";
 
 export type AppRole = "docente" | "direccion";
 
@@ -133,6 +141,15 @@ type CourseInput = {
   name: string;
   school: string;
   isThesis: boolean;
+};
+
+export type TeacherCourseImportResponse = Omit<
+  TeacherCourseImportResult,
+  "resolvedAssignments"
+> & {
+  applied: boolean;
+  replaceTeachers: boolean;
+  payload: SchedulePayload;
 };
 
 type AvailabilityRow = {
@@ -808,6 +825,75 @@ export async function unassignTeacherCourse(
   );
 }
 
+export async function importTeacherCourses(
+  identity: ScheduleIdentity,
+  input: {
+    apply: boolean;
+    csv: string;
+    replaceTeachers: boolean;
+  },
+): Promise<TeacherCourseImportResponse> {
+  if (identity.preview) {
+    const payload = getPreviewPayload(identity);
+    return {
+      ok: true,
+      applied: false,
+      replaceTeachers: input.replaceTeachers,
+      rows: 0,
+      assignments: 0,
+      teachers: 0,
+      errors: [],
+      warnings: ["La importación real está desactivada en vista local."],
+      preview: [],
+      payload,
+    };
+  }
+  await ensureDirection(identity);
+  if (input.apply) {
+    await ensurePeriodOpen();
+  }
+  let records: TeacherCourseImportRecord[];
+  try {
+    records = parseTeacherCourseCsv(input.csv);
+  } catch {
+    throw new ScheduleError("CSV no válido.");
+  }
+  const [teachers, courses, existingAssignments] = await Promise.all([
+    readTeacherCourseImportTeachers(),
+    readTeacherCourseImportCourses(),
+    readTeacherCourseExistingAssignments(),
+  ]);
+  const result = buildTeacherCourseImport({
+    courses,
+    existingAssignments,
+    records,
+    replaceTeachers: input.replaceTeachers,
+    teachers,
+  });
+  if (result.ok && input.apply) {
+    await writeTeacherCourseImport(
+      identity,
+      result.resolvedAssignments,
+      input.replaceTeachers,
+    );
+  }
+  const publicResult = {
+    ok: result.ok,
+    rows: result.rows,
+    assignments: result.assignments,
+    teachers: result.teachers,
+    errors: result.errors,
+    warnings: result.warnings,
+    preview: result.preview,
+  };
+  return {
+    ...publicResult,
+    applied: result.ok && input.apply,
+    replaceTeachers: input.replaceTeachers,
+    payload: await getSchedulePayload(identity),
+  };
+}
+
 async function removeCourseFromTeacher(
   identity: ScheduleIdentity,
   teacherId: string,
@@ -828,6 +914,104 @@ async function removeCourseFromTeacher(
     });
   }
   return getSchedulePayload(identity);
+}
+
+async function readTeacherCourseImportTeachers() {
+  const sql = getSql();
+  return (await sql.query(
+    `
+      select id, teacher_code, email, name, contract
+      from teacher_profiles
+      order by name
+    `,
+  )) as TeacherCourseImportTeacher[];
+}
+
+async function readTeacherCourseImportCourses() {
+  const sql = getSql();
+  return (await sql.query(
+    `
+      select id, code, name, school, is_thesis
+      from courses
+      where active = true
+      order by school, name
+    `,
+  )) as TeacherCourseImportCourse[];
+}
+
+async function readTeacherCourseExistingAssignments() {
+  const sql = getSql();
+  const rows = (await sql.query(
+    `
+      select tc.teacher_id, c.id, c.code, c.name, c.school, c.is_thesis
+      from teacher_courses tc
+      join courses c on c.id = tc.course_id
+    `,
+  )) as Array<TeacherCourseImportCourse & { teacher_id: string }>;
+  const byTeacher = new Map<string, TeacherCourseImportCourse[]>();
+  for (const row of rows) {
+    const coursesForTeacher = byTeacher.get(row.teacher_id) ?? [];
+    coursesForTeacher.push({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      school: row.school,
+      is_thesis: row.is_thesis,
+    });
+    byTeacher.set(row.teacher_id, coursesForTeacher);
+  }
+  return byTeacher;
+}
+
+async function writeTeacherCourseImport(
+  identity: ScheduleIdentity,
+  assignments: TeacherCourseImportResult["resolvedAssignments"],
+  replaceTeachers: boolean,
+) {
+  if (!assignments.length) {
+    return;
+  }
+  const sql = getSql();
+  const teacherIds = Array.from(
+    new Set(assignments.map((assignment) => assignment.teacher.id)),
+  );
+  await sql.transaction((tx) => [
+    ...(replaceTeachers
+      ? teacherIds.map(
+          (teacherId) =>
+            tx`delete from teacher_courses where teacher_id = ${teacherId}`,
+        )
+      : []),
+    ...assignments.map(
+      (assignment) =>
+        tx`
+          insert into teacher_courses (teacher_id, course_id, position)
+          values (${assignment.teacher.id}, ${assignment.course.id}, ${assignment.position})
+          on conflict (teacher_id, course_id) do update set
+            position = excluded.position
+        `,
+    ),
+    ...teacherIds.map(
+      (teacherId) =>
+        tx`
+          update teacher_profiles
+          set status = 'borrador',
+              review_note = '',
+              approved_at = null,
+              updated_at = now()
+          where id = ${teacherId}
+        `,
+    ),
+  ]);
+  for (const teacherId of teacherIds) {
+    const importedCourses = assignments.filter(
+      (assignment) => assignment.teacher.id === teacherId,
+    ).length;
+    await recordEvent(identity, teacherId, "director.course_imported", {
+      importedCourses,
+      replaceTeachers,
+    });
+  }
 }
 
 async function markTeacherDraft(teacherId: string) {

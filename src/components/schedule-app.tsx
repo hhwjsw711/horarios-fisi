@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Sun,
   Trash2,
+  Upload,
   UserCog,
   Users,
 } from "lucide-react";
@@ -30,7 +31,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Alert,
@@ -140,6 +141,7 @@ import type {
   ScheduleEvent,
   SchedulePayload,
   ScheduleUser,
+  TeacherCourseImportResponse,
 } from "@/lib/schedule-db";
 import {
   completionForRules,
@@ -188,6 +190,8 @@ type ApiError = {
   error?: string;
 };
 
+const schedulePayloadCache = new Map<string, SchedulePayload>();
+
 async function readApiError(response: Response, fallback: string) {
   try {
     const payload = (await response.json()) as ApiError;
@@ -205,7 +209,10 @@ export function ScheduleApp({
   view: ViewKey;
 }) {
   const router = useRouter();
-  const [data, setData] = useState<SchedulePayload | null>(null);
+  const endpoint = preview ? "/api/schedule?preview=1" : "/api/schedule";
+  const [data, setData] = useState<SchedulePayload | null>(
+    () => schedulePayloadCache.get(endpoint) ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(
     null,
@@ -217,9 +224,34 @@ export function ScheduleApp({
   const [teacherStatusFilter, setTeacherStatusFilter] =
     useState<TeacherStatusFilter>("all");
   const [saving, setSaving] = useState(false);
+  const [availabilitySaving, setAvailabilitySaving] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [courseSavingIds, setCourseSavingIds] = useState<string[]>([]);
   const [reviewNote, setReviewNote] = useState("");
+  const availabilityMutationRef = useRef(0);
+  const teacherCourseMutationRef = useRef(new Map<string, number>());
 
-  const endpoint = preview ? "/api/schedule?preview=1" : "/api/schedule";
+  const writeData = useCallback(
+    (payload: SchedulePayload) => {
+      schedulePayloadCache.set(endpoint, payload);
+      setData(payload);
+    },
+    [endpoint],
+  );
+
+  const updateData = useCallback(
+    (updater: (current: SchedulePayload) => SchedulePayload) => {
+      setData((current) => {
+        if (!current) {
+          return current;
+        }
+        const next = updater(current);
+        schedulePayloadCache.set(endpoint, next);
+        return next;
+      });
+    },
+    [endpoint],
+  );
 
   const load = useCallback(async () => {
     setError(null);
@@ -229,7 +261,7 @@ export function ScheduleApp({
       return;
     }
     const payload = (await response.json()) as SchedulePayload;
-    setData(payload);
+    writeData(payload);
     const nextSchool =
       payload.onboarding.school || payload.schools[0] || schools[0];
     const visibleCatalog = visibleCoursesForSchool(payload.catalog, nextSchool);
@@ -240,7 +272,7 @@ export function ScheduleApp({
         : (visibleCatalog[0]?.id ?? current),
     );
     setSelectedTeacherId((current) => current ?? payload.profile.id);
-  }, [endpoint]);
+  }, [endpoint, writeData]);
 
   useEffect(() => {
     load();
@@ -291,23 +323,39 @@ export function ScheduleApp({
     view,
   ]);
 
-  const request = async (body: ScheduleAction) => {
-    setSaving(true);
-    const response = await fetch(endpoint, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    setSaving(false);
-    if (!response.ok) {
-      toast.error(
-        await readApiError(response, "No se pudo guardar el cambio."),
-      );
-      return null;
+  const request = async (
+    body: ScheduleAction,
+    options: { commitPayload?: boolean; showSaving?: boolean } = {},
+  ) => {
+    const showSaving = options.showSaving ?? true;
+    if (showSaving) {
+      setSaving(true);
     }
-    const payload = (await response.json()) as SchedulePayload;
-    setData(payload);
-    return payload;
+    try {
+      const response = await fetch(endpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        toast.error(
+          await readApiError(response, "No se pudo guardar el cambio."),
+        );
+        return null;
+      }
+      const payload = (await response.json()) as SchedulePayload;
+      if (options.commitPayload !== false) {
+        writeData(payload);
+      }
+      return payload;
+    } catch {
+      toast.error("No se pudo conectar con el servidor.");
+      return null;
+    } finally {
+      if (showSaving) {
+        setSaving(false);
+      }
+    }
   };
 
   if (error) {
@@ -357,6 +405,47 @@ export function ScheduleApp({
     canUseDirection && view !== "docente" ? reviewCompletion : completion;
   const sidebarCompletionLabel =
     canUseDirection && view !== "docente" ? "Revisión" : "Docente";
+  const setTeacherCoursePending = (teacherId: string, pending: boolean) => {
+    setCourseSavingIds((current) => {
+      if (pending) {
+        return current.includes(teacherId) ? current : [...current, teacherId];
+      }
+      return current.filter((item) => item !== teacherId);
+    });
+  };
+  const nextTeacherCourseMutation = (teacherId: string) => {
+    const next = (teacherCourseMutationRef.current.get(teacherId) ?? 0) + 1;
+    teacherCourseMutationRef.current.set(teacherId, next);
+    return next;
+  };
+  const isLatestTeacherCourseMutation = (
+    teacherId: string,
+    mutationId: number,
+  ) => teacherCourseMutationRef.current.get(teacherId) === mutationId;
+  const withUpdatedTeacher = (
+    payload: SchedulePayload,
+    teacherId: string,
+    updater: (teacher: TeacherProfile) => TeacherProfile,
+  ) => {
+    const teachers = payload.teachers.map((teacher) =>
+      teacher.id === teacherId ? updater(teacher) : teacher,
+    );
+    const nextProfile =
+      payload.profile.id === teacherId
+        ? updater(payload.profile)
+        : payload.profile;
+    return {
+      ...payload,
+      profile: nextProfile,
+      teachers,
+    };
+  };
+  const updateTeacherInData = (
+    teacherId: string,
+    updater: (teacher: TeacherProfile) => TeacherProfile,
+  ) => {
+    updateData((current) => withUpdatedTeacher(current, teacherId, updater));
+  };
 
   const handleToggleSlot = (day: DayKey, hour: number) => {
     if (periodClosed) {
@@ -364,23 +453,45 @@ export function ScheduleApp({
       return;
     }
     const key = slotKey(day, hour);
-    const next = new Set(profile.availability);
-    if (next.has(key)) {
-      next.delete(key);
-    } else {
-      next.add(key);
-    }
-    const availability = Array.from(next).sort();
-    setData({
-      ...data,
-      profile: { ...profile, availability, status: "borrador" },
-      teachers: data.teachers.map((teacher) =>
-        teacher.id === profile.id
-          ? { ...teacher, availability, status: "borrador" }
-          : teacher,
-      ),
+    const previous = data;
+    let availability: string[] | null = null;
+    updateTeacherInData(profile.id, (teacher) => {
+      const next = new Set(teacher.availability);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      availability = Array.from(next).sort();
+      return { ...teacher, availability, status: "borrador" };
     });
-    request({ action: "setAvailability", availability });
+    if (!availability) {
+      return;
+    }
+    const nextAvailability = availability;
+    const mutationId = availabilityMutationRef.current + 1;
+    availabilityMutationRef.current = mutationId;
+    setAvailabilitySaving(true);
+    request(
+      { action: "setAvailability", availability: nextAvailability },
+      { commitPayload: false, showSaving: false },
+    ).then((payload) => {
+      if (availabilityMutationRef.current !== mutationId) {
+        return;
+      }
+      setAvailabilitySaving(false);
+      if (payload) {
+        writeData(
+          withUpdatedTeacher(payload, profile.id, (teacher) => ({
+            ...teacher,
+            availability: nextAvailability,
+            status: "borrador",
+          })),
+        );
+      } else if (previous) {
+        writeData(previous);
+      }
+    });
   };
 
   const handleContractChange = (contract: ContractKey) => {
@@ -388,7 +499,24 @@ export function ScheduleApp({
       toast.error("El periodo académico está cerrado.");
       return;
     }
-    request({ action: "setContract", contract });
+    const previous = data;
+    updateTeacherInData(profile.id, (teacher) => ({
+      ...teacher,
+      contract,
+      status: "borrador",
+    }));
+    setProfileSaving(true);
+    request(
+      { action: "setContract", contract },
+      { commitPayload: false, showSaving: false },
+    ).then((payload) => {
+      setProfileSaving(false);
+      if (payload) {
+        writeData(payload);
+      } else if (previous) {
+        writeData(previous);
+      }
+    });
   };
 
   const handleAddCourse = async () => {
@@ -411,7 +539,37 @@ export function ScheduleApp({
       toast.error("Ya alcanzaste el máximo de cursos para tu clase docente.");
       return;
     }
-    await request({ action: "addCourse", courseId: course.id });
+    const previous = data;
+    const mutationId = nextTeacherCourseMutation(profile.id);
+    setTeacherCoursePending(profile.id, true);
+    updateTeacherInData(profile.id, (teacher) => ({
+      ...teacher,
+      courses: teacher.courses.some((item) => item.id === course.id)
+        ? teacher.courses
+        : [...teacher.courses, course],
+      status: "borrador",
+    }));
+    const payload = await request(
+      { action: "addCourse", courseId: course.id },
+      { commitPayload: false, showSaving: false },
+    );
+    if (isLatestTeacherCourseMutation(profile.id, mutationId)) {
+      setTeacherCoursePending(profile.id, false);
+      if (payload) {
+        writeData(
+          withUpdatedTeacher(payload, profile.id, (teacher) => ({
+            ...teacher,
+            courses: teacher.courses.some((item) => item.id === course.id)
+              ? teacher.courses
+              : [...teacher.courses, course],
+            status: "borrador",
+          })),
+        );
+        toast.success("Curso agregado.");
+      } else if (previous) {
+        writeData(previous);
+      }
+    }
   };
 
   const handleRemoveCourse = async (id: string) => {
@@ -419,7 +577,33 @@ export function ScheduleApp({
       toast.error("El periodo académico está cerrado.");
       return;
     }
-    await request({ action: "removeCourse", courseId: id });
+    const previous = data;
+    const mutationId = nextTeacherCourseMutation(profile.id);
+    setTeacherCoursePending(profile.id, true);
+    updateTeacherInData(profile.id, (teacher) => ({
+      ...teacher,
+      courses: teacher.courses.filter((course) => course.id !== id),
+      status: "borrador",
+    }));
+    const payload = await request(
+      { action: "removeCourse", courseId: id },
+      { commitPayload: false, showSaving: false },
+    );
+    if (isLatestTeacherCourseMutation(profile.id, mutationId)) {
+      setTeacherCoursePending(profile.id, false);
+      if (payload) {
+        writeData(
+          withUpdatedTeacher(payload, profile.id, (teacher) => ({
+            ...teacher,
+            courses: teacher.courses.filter((course) => course.id !== id),
+            status: "borrador",
+          })),
+        );
+        toast.success("Curso retirado.");
+      } else if (previous) {
+        writeData(previous);
+      }
+    }
   };
 
   const handleSubmit = async () => {
@@ -570,17 +754,95 @@ export function ScheduleApp({
     return payload;
   };
 
+  const handleImportTeacherCourses = async ({
+    apply,
+    csv,
+    replaceTeachers,
+  }: {
+    apply: boolean;
+    csv: string;
+    replaceTeachers: boolean;
+  }) => {
+    setSaving(true);
+    try {
+      const response = await fetch(endpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "importTeacherCourses",
+          apply,
+          csv,
+          replaceTeachers,
+        }),
+      });
+      if (!response.ok) {
+        toast.error(
+          await readApiError(response, "No se pudo importar el CSV."),
+        );
+        return null;
+      }
+      const result = (await response.json()) as TeacherCourseImportResponse;
+      writeData(result.payload);
+      if (result.ok) {
+        toast.success(
+          result.applied
+            ? "Carga docente aplicada."
+            : "CSV validado correctamente.",
+        );
+      } else {
+        toast.error("CSV con observaciones por corregir.");
+      }
+      return result;
+    } catch {
+      toast.error("No se pudo conectar con el servidor.");
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleAssignTeacherCourse = async (
     teacherId: string,
     nextCourseId: string,
   ) => {
-    const payload = await request({
-      action: "assignTeacherCourse",
-      teacherId,
-      courseId: nextCourseId,
-    });
-    if (payload) {
-      toast.success("Curso asignado al docente.");
+    const course = data.catalog.find((item) => item.id === nextCourseId);
+    if (!course) {
+      return null;
+    }
+    const previous = data;
+    const mutationId = nextTeacherCourseMutation(teacherId);
+    setTeacherCoursePending(teacherId, true);
+    updateTeacherInData(teacherId, (teacher) => ({
+      ...teacher,
+      courses: teacher.courses.some((item) => item.id === course.id)
+        ? teacher.courses
+        : [...teacher.courses, course],
+      status: "borrador",
+    }));
+    const payload = await request(
+      {
+        action: "assignTeacherCourse",
+        teacherId,
+        courseId: nextCourseId,
+      },
+      { commitPayload: false, showSaving: false },
+    );
+    if (isLatestTeacherCourseMutation(teacherId, mutationId)) {
+      setTeacherCoursePending(teacherId, false);
+      if (payload) {
+        writeData(
+          withUpdatedTeacher(payload, teacherId, (teacher) => ({
+            ...teacher,
+            courses: teacher.courses.some((item) => item.id === course.id)
+              ? teacher.courses
+              : [...teacher.courses, course],
+            status: "borrador",
+          })),
+        );
+        toast.success("Curso asignado al docente.");
+      } else {
+        writeData(previous);
+      }
     }
     return payload;
   };
@@ -589,13 +851,38 @@ export function ScheduleApp({
     teacherId: string,
     nextCourseId: string,
   ) => {
-    const payload = await request({
-      action: "unassignTeacherCourse",
-      teacherId,
-      courseId: nextCourseId,
-    });
-    if (payload) {
-      toast.success("Curso retirado del docente.");
+    const previous = data;
+    const mutationId = nextTeacherCourseMutation(teacherId);
+    setTeacherCoursePending(teacherId, true);
+    updateTeacherInData(teacherId, (teacher) => ({
+      ...teacher,
+      courses: teacher.courses.filter((course) => course.id !== nextCourseId),
+      status: "borrador",
+    }));
+    const payload = await request(
+      {
+        action: "unassignTeacherCourse",
+        teacherId,
+        courseId: nextCourseId,
+      },
+      { commitPayload: false, showSaving: false },
+    );
+    if (isLatestTeacherCourseMutation(teacherId, mutationId)) {
+      setTeacherCoursePending(teacherId, false);
+      if (payload) {
+        writeData(
+          withUpdatedTeacher(payload, teacherId, (teacher) => ({
+            ...teacher,
+            courses: teacher.courses.filter(
+              (course) => course.id !== nextCourseId,
+            ),
+            status: "borrador",
+          })),
+        );
+        toast.success("Curso retirado del docente.");
+      } else {
+        writeData(previous);
+      }
     }
     return payload;
   };
@@ -623,6 +910,7 @@ export function ScheduleApp({
             data.teachers.length > 0 && approvedCount === data.teachers.length
           }
           onCreateCourse={handleCreateCourse}
+          onImportTeacherCourses={handleImportTeacherCourses}
           onSetAcademicTerm={handleSetAcademicTerm}
           onSetCourseActive={handleSetCourseActive}
           onSetPeriodClosed={handleSetPeriodClosed}
@@ -645,6 +933,7 @@ export function ScheduleApp({
       ) : view === "direccion" && canUseDirection ? (
         <DirectorView
           catalog={activeCatalog}
+          courseSavingIds={courseSavingIds}
           handleExportPdf={handleExportPdf}
           handleExportXlsx={handleExportXlsx}
           handleApproveTeacher={handleApproveTeacher}
@@ -679,8 +968,10 @@ export function ScheduleApp({
         <LockedDirectionView />
       ) : (
         <DocenteView
+          academicTerm={academicTerm}
           catalogForSchool={catalogForSchool}
           courseId={courseId}
+          courseSaving={courseSavingIds.includes(profile.id)}
           handleAddCourse={handleAddCourse}
           handleContractChange={handleContractChange}
           handleRemoveCourse={handleRemoveCourse}
@@ -693,7 +984,7 @@ export function ScheduleApp({
           schools={schoolOptions}
           setCourseId={setCourseId}
           setSchool={setSchool}
-          academicTerm={academicTerm}
+          statusSaving={availabilitySaving || profileSaving}
           validation={validation}
         />
       )}
@@ -1252,6 +1543,7 @@ function DocenteView({
   academicTerm,
   catalogForSchool,
   courseId,
+  courseSaving,
   handleAddCourse,
   handleContractChange,
   handleRemoveCourse,
@@ -1264,11 +1556,13 @@ function DocenteView({
   schools,
   setCourseId,
   setSchool,
+  statusSaving,
   validation,
 }: {
   academicTerm: string;
   catalogForSchool: Course[];
   courseId: string;
+  courseSaving: boolean;
   handleAddCourse: () => void;
   handleContractChange: (contract: ContractKey) => void;
   handleRemoveCourse: (id: string) => void;
@@ -1281,6 +1575,7 @@ function DocenteView({
   schools: string[];
   setCourseId: (id: string) => void;
   setSchool: (school: string) => void;
+  statusSaving: boolean;
   validation: Validation;
 }) {
   const selectedCourse = catalogForSchool.find(
@@ -1321,6 +1616,11 @@ function DocenteView({
           </div>
           <Toolbar className="shrink-0 border-0 bg-transparent p-0 shadow-none">
             <ToolbarGroup>
+              {statusSaving ? (
+                <Badge variant="secondary" className="hidden md:inline-flex">
+                  Guardando
+                </Badge>
+              ) : null}
               <Select
                 disabled={periodClosed}
                 value={profile.contract}
@@ -1360,12 +1660,13 @@ function DocenteView({
           />
         </CardContent>
       </Card>
-      <aside className="grid min-h-0 gap-3 xl:grid-rows-[minmax(0,1fr)_auto]">
+      <aside className="grid min-h-0 content-start gap-3 overflow-hidden">
         <CoursesEditorCard
           catalogForSchool={catalogForSchool}
           addCourseDisabled={addCourseDisabled}
           addCourseLabel={addCourseLabel}
           courseId={courseId}
+          courseSaving={courseSaving}
           courses={profile.courses}
           disabled={periodClosed}
           handleAddCourse={handleAddCourse}
@@ -1392,6 +1693,7 @@ function CoursesEditorCard({
   addCourseLabel,
   catalogForSchool,
   courseId,
+  courseSaving,
   courses,
   disabled = false,
   handleAddCourse,
@@ -1405,6 +1707,7 @@ function CoursesEditorCard({
   addCourseLabel: string;
   catalogForSchool: Course[];
   courseId: string;
+  courseSaving: boolean;
   courses: Course[];
   disabled?: boolean;
   handleAddCourse: () => void;
@@ -1463,6 +1766,7 @@ function CoursesEditorCard({
             </Select>
             <Button
               disabled={addCourseDisabled}
+              loading={courseSaving}
               onClick={handleAddCourse}
               size="sm"
             >
@@ -1471,11 +1775,12 @@ function CoursesEditorCard({
             </Button>
           </div>
         </div>
-        <div className="min-h-0 overflow-hidden rounded-md border">
-          <CoursesTable
-            compact
+        <div className="h-[clamp(150px,30vh,260px)] min-h-0 overflow-hidden rounded-md border bg-muted/20">
+          <CourseCardsList
             courses={courses}
+            emptyDescription="Agrega los cursos que dictarás este semestre."
             onRemoveCourse={disabled ? undefined : handleRemoveCourse}
+            removeDisabled={courseSaving}
           />
         </div>
       </CardContent>
@@ -1489,6 +1794,7 @@ function ConfigurationView({
   canClosePeriod,
   catalog,
   onCreateCourse,
+  onImportTeacherCourses,
   onSetAcademicTerm,
   onSetCourseActive,
   onSetPeriodClosed,
@@ -1507,6 +1813,11 @@ function ConfigurationView({
     name: string;
     school: string;
   }) => Promise<SchedulePayload | null>;
+  onImportTeacherCourses: (input: {
+    apply: boolean;
+    csv: string;
+    replaceTeachers: boolean;
+  }) => Promise<TeacherCourseImportResponse | null>;
   onSetAcademicTerm: (academicTerm: string) => Promise<SchedulePayload | null>;
   onSetCourseActive: (courseId: string, active: boolean) => Promise<void>;
   onSetPeriodClosed: (closed: boolean) => Promise<SchedulePayload | null>;
@@ -1525,6 +1836,11 @@ function ConfigurationView({
   const [catalogStatusFilter, setCatalogStatusFilter] =
     useState<CourseStatusFilter>("all");
   const [catalogSchoolFilter, setCatalogSchoolFilter] = useState("all");
+  const [teacherCourseImportCsv, setTeacherCourseImportCsv] = useState("");
+  const [teacherCourseImportFile, setTeacherCourseImportFile] = useState("");
+  const [replaceTeacherCourses, setReplaceTeacherCourses] = useState(true);
+  const [teacherCourseImportResult, setTeacherCourseImportResult] =
+    useState<TeacherCourseImportResponse | null>(null);
   const selectedSchool = customSchool.trim() || school;
   const activeCount = catalog.filter(
     (course) => course.active !== false,
@@ -1582,6 +1898,34 @@ function ConfigurationView({
       setName("");
       setCustomSchool("");
       setIsThesis(false);
+    }
+  };
+
+  const handleTeacherCourseFile = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const body = await file.text();
+    setTeacherCourseImportCsv(body);
+    setTeacherCourseImportFile(file.name);
+    setTeacherCourseImportResult(null);
+  };
+
+  const handleTeacherCourseImport = async (apply: boolean) => {
+    if (!teacherCourseImportCsv.trim()) {
+      toast.error("Selecciona un CSV de carga docente.");
+      return;
+    }
+    const result = await onImportTeacherCourses({
+      apply,
+      csv: teacherCourseImportCsv,
+      replaceTeachers: replaceTeacherCourses,
+    });
+    if (result) {
+      setTeacherCourseImportResult(result);
     }
   };
 
@@ -1647,6 +1991,92 @@ function ConfigurationView({
                       ? "Cerrar periodo"
                       : "Faltan aprobaciones"}
                 </Button>
+              </Field>
+              <Field className="rounded-md border bg-muted/25 p-2">
+                <div className="flex w-full items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <FieldLabel>Carga docente CSV</FieldLabel>
+                    <FieldDescription className="truncate">
+                      {teacherCourseImportFile || "Sin archivo seleccionado"}
+                    </FieldDescription>
+                  </div>
+                  <Upload className="mt-0.5 size-4 shrink-0 text-gold" />
+                </div>
+                <Input
+                  accept=".csv,text/csv"
+                  aria-label="CSV de carga docente"
+                  nativeInput
+                  onChange={handleTeacherCourseFile}
+                  size="sm"
+                  type="file"
+                />
+                <Field className="flex-row items-center justify-between rounded-md border bg-background/70 px-2 py-1">
+                  <div>
+                    <FieldLabel className="text-xs">
+                      Reemplazar docentes incluidos
+                    </FieldLabel>
+                    <FieldDescription>
+                      Actualiza solo filas del CSV.
+                    </FieldDescription>
+                  </div>
+                  <Switch
+                    checked={replaceTeacherCourses}
+                    onCheckedChange={setReplaceTeacherCourses}
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    disabled={!teacherCourseImportCsv.trim() || saving}
+                    loading={saving}
+                    onClick={() => handleTeacherCourseImport(false)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Validar
+                  </Button>
+                  <Button
+                    disabled={
+                      !teacherCourseImportResult?.ok ||
+                      teacherCourseImportResult.assignments === 0 ||
+                      teacherCourseImportResult.applied ||
+                      saving
+                    }
+                    loading={saving}
+                    onClick={() => handleTeacherCourseImport(true)}
+                    size="sm"
+                  >
+                    Aplicar
+                  </Button>
+                </div>
+                {teacherCourseImportResult ? (
+                  <Alert
+                    className="p-2"
+                    variant={teacherCourseImportResult.ok ? "success" : "error"}
+                  >
+                    {teacherCourseImportResult.ok ? (
+                      <ShieldCheck />
+                    ) : (
+                      <AlertCircle />
+                    )}
+                    <AlertTitle>
+                      {teacherCourseImportResult.ok
+                        ? `${teacherCourseImportResult.assignments} asignaciones`
+                        : `${teacherCourseImportResult.errors.length} observaciones`}
+                    </AlertTitle>
+                    <AlertDescription>
+                      {teacherCourseImportResult.ok ? (
+                        <span>
+                          {teacherCourseImportResult.teachers} docentes ·{" "}
+                          {teacherCourseImportResult.rows} filas
+                        </span>
+                      ) : (
+                        teacherCourseImportResult.errors
+                          .slice(0, 3)
+                          .map((item) => <span key={item}>{item}</span>)
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
               </Field>
               <Separator />
               <div>
@@ -2436,6 +2866,7 @@ function StatusMetric({ label, value }: { label: string; value: string }) {
 
 function DirectorView({
   catalog,
+  courseSavingIds,
   events,
   handleApproveTeacher,
   handleAssignTeacherCourse,
@@ -2464,6 +2895,7 @@ function DirectorView({
   validation,
 }: {
   catalog: Course[];
+  courseSavingIds: string[];
   events: ScheduleEvent[];
   handleApproveTeacher: () => Promise<void>;
   handleAssignTeacherCourse: (
@@ -2691,7 +3123,10 @@ function DirectorView({
                           onUnassignTeacherCourse={handleUnassignTeacherCourse}
                           periodClosed={periodClosed}
                           reviewNote={reviewNote}
-                          saving={saving}
+                          saving={
+                            saving ||
+                            courseSavingIds.includes(selectedTeacher.id)
+                          }
                           selectedTeacher={selectedTeacher}
                           setReviewNote={setReviewNote}
                           schools={schools}
@@ -2735,7 +3170,7 @@ function DirectorView({
             onUnassignTeacherCourse={handleUnassignTeacherCourse}
             periodClosed={periodClosed}
             reviewNote={reviewNote}
-            saving={saving}
+            saving={saving || courseSavingIds.includes(selectedTeacher.id)}
             selectedTeacher={selectedTeacher}
             setReviewNote={setReviewNote}
             schools={schools}
@@ -3068,17 +3503,17 @@ function CoursesReviewCard({
             </p>
           ) : null}
         </div>
-        <div className="min-h-0 overflow-hidden rounded-md border">
-          <CoursesTable
-            compact
+        <div className="h-[clamp(160px,34vh,320px)] min-h-0 overflow-hidden rounded-md border bg-muted/20">
+          <CourseCardsList
             courses={teacher.courses}
             emptyDescription="Asigna cursos desde el catálogo activo."
             emptyTitle="Sin cursos asignados"
             onRemoveCourse={
-              disabled || saving
+              disabled
                 ? undefined
                 : (courseIdValue) => onRemoveCourse(teacher.id, courseIdValue)
             }
+            removeDisabled={saving}
           />
         </div>
       </CardContent>
@@ -3322,8 +3757,13 @@ function ScheduleBoard({
                 const key = slotKey(day.key, hour);
                 const isSelected = selected.has(key);
                 const Cell = interactive ? "button" : "div";
+                const label = `${day.label} ${formatHour(hour)}: ${
+                  isSelected ? "disponible" : "sin marcar"
+                }`;
                 return (
                   <Cell
+                    aria-label={interactive ? label : undefined}
+                    aria-pressed={interactive ? isSelected : undefined}
                     className={cn(
                       "flex min-h-0 items-center justify-center border-r text-xs transition-colors last:border-r-0",
                       isSelected
@@ -3416,22 +3856,22 @@ function RulePanel({
   );
 }
 
-function CoursesTable({
-  compact = false,
+function CourseCardsList({
   courses,
   emptyDescription = "Agrega un curso para habilitar la validación.",
   emptyTitle = "Sin cursos",
   onRemoveCourse,
+  removeDisabled = false,
 }: {
-  compact?: boolean;
   courses: Course[];
   emptyDescription?: string;
   emptyTitle?: string;
   onRemoveCourse?: (id: string) => void;
+  removeDisabled?: boolean;
 }) {
   if (!courses.length) {
     return (
-      <Empty className="h-full py-8">
+      <Empty className="h-full px-3 py-8">
         <EmptyMedia variant="icon">
           <BookOpen />
         </EmptyMedia>
@@ -3445,74 +3885,56 @@ function CoursesTable({
   }
 
   return (
-    <ScrollArea scrollbarGutter>
-      <Table className={compact ? "text-xs" : undefined}>
-        <TableHeader className="sticky top-0 z-10 bg-card">
-          <TableRow className={compact ? "h-8" : "h-9"}>
-            <TableHead className={cn(compact ? "h-8 w-10 px-1.5" : "w-14")}>
-              N°
-            </TableHead>
-            <TableHead className={compact ? "h-8 px-1.5" : undefined}>
-              Curso
-            </TableHead>
-            <TableHead className={compact ? "h-8 px-1.5" : undefined}>
-              Escuela Profesional
-            </TableHead>
-            {onRemoveCourse ? (
-              <TableHead className={compact ? "h-8 w-8 px-1" : "w-14"} />
-            ) : null}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {courses.map((course, index) => (
-            <TableRow className={compact ? "h-11" : "h-12"} key={course.id}>
-              <TableCell
-                className={cn(
-                  "text-muted-foreground tabular-nums",
-                  compact && "px-1.5 py-1",
-                )}
-              >
-                {index + 1}
-              </TableCell>
-              <TableCell
-                className={cn("font-medium", compact && "px-1.5 py-1")}
-              >
-                <span className="block">{course.name}</span>
-                <span className="block text-muted-foreground text-[11px]">
-                  {courseMeta(course)}
+    <ScrollArea scrollbarGutter scrollFade>
+      <div className="grid gap-1.5 p-1.5">
+        {courses.map((course, index) => (
+          <div
+            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-md border bg-card px-2.5 py-2 shadow-xs"
+            key={course.id}
+          >
+            <span className="flex size-7 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground text-xs tabular-nums">
+              {index + 1}
+            </span>
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-start gap-2">
+                <span className="min-w-0 flex-1 truncate font-medium text-sm">
+                  {course.name}
                 </span>
                 {course.isThesis ? (
-                  <Badge variant="secondary" className="ml-2">
+                  <Badge variant="secondary" className="shrink-0">
                     Tesis
                   </Badge>
                 ) : null}
-              </TableCell>
-              <TableCell className={compact ? "px-1.5 py-1" : undefined}>
-                {course.school}
-              </TableCell>
-              {onRemoveCourse ? (
-                <TableCell className={compact ? "px-1 py-0.5" : undefined}>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size={compact ? "icon-xs" : "icon"}
-                          onClick={() => onRemoveCourse(course.id)}
-                        />
-                      }
-                    >
-                      <Trash2 data-icon="inline-start" />
-                      <span className="sr-only">Quitar curso</span>
-                    </TooltipTrigger>
-                    <TooltipContent>Quitar curso</TooltipContent>
-                  </Tooltip>
-                </TableCell>
-              ) : null}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+              </div>
+              <div className="mt-0.5 truncate text-muted-foreground text-xs">
+                {courseMeta(course)}
+              </div>
+              <div className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+                <GraduationCap className="size-3.5 shrink-0" />
+                <span className="truncate">{course.school}</span>
+              </div>
+            </div>
+            {onRemoveCourse ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      disabled={removeDisabled}
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => onRemoveCourse(course.id)}
+                    />
+                  }
+                >
+                  <Trash2 data-icon="inline-start" />
+                  <span className="sr-only">Quitar curso</span>
+                </TooltipTrigger>
+                <TooltipContent>Quitar curso</TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
+        ))}
+      </div>
     </ScrollArea>
   );
 }
@@ -3716,6 +4138,7 @@ function eventLabel(eventType: string) {
   const labels: Record<string, string> = {
     "director.approved_schedule": "Horario aprobado",
     "director.course_assigned": "Curso asignado",
+    "director.course_imported": "Carga docente importada",
     "director.course_unassigned": "Curso retirado",
     "director.observed_schedule": "Observación registrada",
     "period.closed": "Periodo cerrado",
@@ -3788,6 +4211,9 @@ function eventSummary(event: ScheduleEvent) {
         ? event.metadata.courseName
         : "";
     return [name, event.metadata.courseId].filter(Boolean).join(" · ");
+  }
+  if (typeof event.metadata.importedCourses === "number") {
+    return `${event.metadata.importedCourses} cursos importados`;
   }
   return "";
 }
