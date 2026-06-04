@@ -1380,40 +1380,80 @@ function OnboardingView({
   };
 
   return (
-    <section className="flex h-screen min-h-0 items-center justify-center overflow-hidden bg-background p-4 text-foreground md:p-6">
-      <div className="grid h-full max-h-[720px] w-full max-w-6xl gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Card className="min-h-0 overflow-hidden">
-          <CardHeader className="border-b p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <CardTitle className="font-serif text-2xl">
-                  Configura tu acceso institucional
-                </CardTitle>
-                <CardDescription>
-                  Completa tu código docente para activar tu horario.
-                </CardDescription>
-              </div>
-              <Badge variant="secondary">Onboarding</Badge>
+    <section className="flex h-screen min-h-0 items-center justify-center overflow-hidden bg-background p-3 text-foreground md:p-6">
+      <div className="grid h-full max-h-[620px] w-full max-w-5xl overflow-hidden rounded-lg border bg-card shadow-sm lg:grid-cols-[minmax(0,1fr)_370px]">
+        <div className="hidden min-h-0 flex-col justify-between bg-sidebar p-6 text-sidebar-foreground lg:flex">
+          <div className="flex items-center gap-3">
+            <Image
+              src="/escudo-unmsm.png"
+              alt="Escudo UNMSM"
+              width={52}
+              height={52}
+              className="rounded-md bg-vellum p-1"
+              priority
+            />
+            <div className="min-w-0">
+              <p className="text-gold text-xs font-semibold uppercase tracking-[0.18em]">
+                UNMSM
+              </p>
+              <p className="truncate font-serif text-2xl font-semibold">
+                Horarios FISI
+              </p>
             </div>
+          </div>
+          <div className="space-y-3">
+            <p className="font-serif text-3xl leading-tight">
+              Un solo perfil para registrar tu disponibilidad.
+            </p>
+            <p className="text-sidebar-foreground/75 text-sm leading-6">
+              Verificaremos tu escuela profesional y código docente antes de
+              abrir el horario del semestre.
+            </p>
+          </div>
+          <div className="grid gap-2 text-sm">
+            {[
+              "Disponibilidad semanal",
+              "Cursos del semestre",
+              "Envío a Dirección Académica",
+            ].map((item) => (
+              <div className="flex items-center gap-2" key={item}>
+                <Check className="size-4 text-gold" />
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <Card className="min-h-0 overflow-hidden border-0 shadow-none">
+          <CardHeader className="border-b p-4">
+            <Badge variant="secondary" className="w-fit">
+              Primer ingreso
+            </Badge>
+            <CardTitle className="font-serif text-2xl">
+              Confirma tus datos
+            </CardTitle>
+            <CardDescription>
+              Estos datos quedarán asociados a tu correo institucional.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="grid h-full min-h-0 gap-4 p-4 md:grid-cols-[1fr_1fr]">
-            <Field>
-              <FieldLabel>Rol institucional</FieldLabel>
-              <FieldDescription>
-                Los docentes registran disponibilidad. Admin se asigna desde
-                Clerk.
-              </FieldDescription>
-              <div className="mt-2 rounded-lg border bg-card p-3">
+          <CardContent className="min-h-0 p-4">
+            <div className="space-y-3">
+              <Alert variant="info" className="rounded-md p-2.5">
+                <Info />
+                <AlertTitle>Cuenta detectada</AlertTitle>
+                <AlertDescription>
+                  {userEmail ?? "Correo institucional pendiente"}
+                </AlertDescription>
+              </Alert>
+              <Field className="rounded-md border bg-muted/25 p-3">
                 <div className="flex items-center gap-2 font-medium">
                   <CalendarClock className="size-4 text-gold" />
                   Docente
                 </div>
-                <p className="mt-1 text-muted-foreground text-sm">
-                  Registro de disponibilidad, cursos y envío a revisión.
-                </p>
-              </div>
-            </Field>
-            <div className="space-y-4">
+                <FieldDescription>
+                  Acceso para registrar disponibilidad, cursos y envío a
+                  revisión.
+                </FieldDescription>
+              </Field>
               <Field>
                 <FieldLabel>Escuela profesional</FieldLabel>
                 <Select value={school} onValueChange={setSchool}>
@@ -1433,7 +1473,7 @@ function OnboardingView({
                 </Select>
               </Field>
               <Field>
-                <FieldLabel>Código o legajo</FieldLabel>
+                <FieldLabel>Código docente</FieldLabel>
                 <Input
                   value={code}
                   onChange={(event) => setCode(event.target.value)}
@@ -1441,16 +1481,9 @@ function OnboardingView({
                   type="text"
                 />
                 <FieldDescription>
-                  Se guarda en Neon y queda asociado a tu cuenta Clerk.
+                  Usa el código indicado por la facultad.
                 </FieldDescription>
               </Field>
-              <Alert variant="info">
-                <Info />
-                <AlertTitle>Cuenta detectada</AlertTitle>
-                <AlertDescription>
-                  {userEmail ?? "Correo institucional pendiente"}
-                </AlertDescription>
-              </Alert>
               <Button
                 className="w-full"
                 disabled={!codeIsValid}
@@ -1461,27 +1494,6 @@ function OnboardingView({
                 Guardar perfil
               </Button>
             </div>
-          </CardContent>
-        </Card>
-        <Card className="min-h-0 overflow-hidden bg-primary text-primary-foreground">
-          <CardHeader className="p-4">
-            <CardTitle className="font-serif text-2xl">Rutas por rol</CardTitle>
-            <CardDescription className="text-primary-foreground/75">
-              El sidebar abre rutas reales, no tabs acumulados.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 p-4 text-sm">
-            {[
-              "/docente para disponibilidad y cursos.",
-              "/direccion para revisión y exportación.",
-              "Neon guarda perfil, cursos, estado y disponibilidad.",
-              "Tema claro u oscuro desde el header.",
-            ].map((item) => (
-              <div className="flex items-center gap-2" key={item}>
-                <Check className="size-4 text-gold" />
-                <span>{item}</span>
-              </div>
-            ))}
           </CardContent>
         </Card>
       </div>
@@ -4391,68 +4403,68 @@ function buildExportRows(profile: TeacherProfile) {
 
 export function SignedOutShell() {
   return (
-    <main className="flex h-screen items-center justify-center overflow-hidden bg-background p-4 text-foreground md:p-6">
-      <section className="grid h-full max-h-[720px] w-full max-w-5xl gap-4 md:grid-cols-[1fr_400px]">
-        <div className="flex min-h-0 flex-col justify-between rounded-lg border bg-card p-6 shadow-sm">
+    <main className="flex h-screen items-center justify-center overflow-hidden bg-background p-3 text-foreground md:p-6">
+      <section className="grid h-full max-h-[620px] w-full max-w-5xl overflow-hidden rounded-lg border bg-card shadow-sm md:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="flex min-h-0 flex-col justify-between bg-sidebar p-6 text-sidebar-foreground md:p-8">
           <div className="flex items-center gap-3">
             <Image
               src="/escudo-unmsm.png"
               alt="Escudo UNMSM"
-              width={52}
-              height={52}
+              width={56}
+              height={56}
               className="rounded-md bg-vellum p-1"
               priority
             />
-            <div>
+            <div className="min-w-0">
               <p className="text-gold text-xs font-semibold uppercase tracking-[0.18em]">
                 UNMSM
               </p>
-              <h1 className="font-serif text-3xl font-semibold">
-                Horarios UNMSM
+              <h1 className="truncate font-serif text-3xl font-semibold">
+                Horarios FISI
               </h1>
             </div>
           </div>
-          <div className="flex flex-col gap-4">
-            <p className="max-w-xl text-muted-foreground">
-              Plataforma para docentes, dirección académica y administrativos.
-              Registro, validación y exportación con persistencia institucional.
+          <div className="max-w-xl space-y-4">
+            <p className="font-serif text-3xl leading-tight md:text-4xl">
+              Registro académico de disponibilidad docente.
             </p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {["Clerk roles", "Neon Postgres", "PDF/XLSX"].map((item) => (
-                <div
-                  className="rounded-lg border bg-background p-3 text-sm"
-                  key={item}
-                >
-                  {item}
-                </div>
-              ))}
-            </div>
+            <p className="max-w-lg text-sidebar-foreground/75 text-sm leading-6">
+              Acceso para docentes y Dirección Académica de la Facultad de
+              Ingeniería de Sistemas e Informática.
+            </p>
+          </div>
+          <div className="grid gap-2 text-sm sm:grid-cols-3">
+            {["Docentes", "Dirección", "Semestre 2026.2"].map((item) => (
+              <div className="border-sidebar-border border-t pt-2" key={item}>
+                <span className="text-sidebar-foreground/70">{item}</span>
+              </div>
+            ))}
           </div>
         </div>
-        <Card className="self-center">
-          <CardHeader>
-            <CardTitle>Ingreso</CardTitle>
-            <CardDescription>
-              Accede con tu correo para registrar o revisar horarios.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3">
-              <SignInButton mode="modal">
-                <Button className="w-full">
-                  <GraduationCap data-icon="inline-start" />
-                  Iniciar sesión
-                </Button>
-              </SignInButton>
-              <a
-                className={cn(buttonVariants({ variant: "outline" }), "w-full")}
-                href="/sign-up"
-              >
-                Solicitar acceso
-              </a>
+        <div className="flex min-h-0 items-center bg-card p-5 md:p-6">
+          <div className="w-full space-y-5">
+            <div className="space-y-1">
+              <Badge variant="secondary">Acceso institucional</Badge>
+              <h2 className="font-serif text-2xl font-semibold">
+                Iniciar sesión
+              </h2>
+              <p className="text-muted-foreground text-sm leading-6">
+                Usa el correo registrado por la facultad para entrar al sistema
+                de horarios.
+              </p>
             </div>
-          </CardContent>
-        </Card>
+            <SignInButton mode="modal">
+              <Button className="h-11 w-full">
+                <GraduationCap data-icon="inline-start" />
+                Ingresar con mi cuenta
+              </Button>
+            </SignInButton>
+            <p className="border-t pt-3 text-muted-foreground text-xs leading-5">
+              Si tu correo no está habilitado, comunícate con Dirección
+              Académica FISI.
+            </p>
+          </div>
+        </div>
       </section>
     </main>
   );

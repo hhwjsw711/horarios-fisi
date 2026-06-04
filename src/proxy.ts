@@ -16,7 +16,12 @@ const isDevelopmentBypassRoute = createRouteMatcher([
 const isScheduleApiRoute = createRouteMatcher(["/api/schedule(.*)"]);
 const isHealthRoute = createRouteMatcher(["/api/health(.*)"]);
 const isWebhookRoute = createRouteMatcher(["/api/webhooks(.*)"]);
-const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)"]);
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/opengraph-image(.*)",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+]);
 
 const clerkProxy = clerkMiddleware(
   async (auth, request) => {
