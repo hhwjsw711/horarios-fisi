@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { text } from "node:stream/consumers";
 import { neon } from "@neondatabase/serverless";
+import { normalizeDepartment } from "../src/lib/schedule-data";
 
 type ImportTeacher = {
   id: string;
@@ -10,6 +11,7 @@ type ImportTeacher = {
   email: string;
   category?: string;
   academicDegree?: string;
+  department?: string;
 };
 
 type ClerkUser = {
@@ -26,7 +28,7 @@ const source =
   valueAfter("--source") ?? args.find((arg) => !arg.startsWith("--"));
 const sqlOut = valueAfter("--sql-out");
 const apply = args.includes("--apply");
-const school = valueAfter("--school") ?? "Ing. de Sistemas";
+const school = normalizeDepartment(valueAfter("--school"));
 
 if (!process.env.CLERK_SECRET_KEY) {
   throw new Error("CLERK_SECRET_KEY is required.");
@@ -54,6 +56,7 @@ const appUsers: {
   name: string;
   teacherCode: string;
   teacherId: string;
+  department: string;
 }[] = [];
 let created = 0;
 let existing = 0;
@@ -77,10 +80,11 @@ for (const teacher of teachers) {
     name: teacher.name,
     teacherCode: teacher.teacherCode,
     teacherId: teacher.id,
+    department: normalizeDepartment(teacher.department ?? school),
   });
 }
 
-const sql = buildSql(appUsers, school);
+const sql = buildSql(appUsers);
 if (apply) {
   await neon(process.env.DATABASE_URL ?? "").query(sql);
 }
@@ -122,7 +126,7 @@ async function readTeachersFromDatabase(): Promise<ImportTeacher[]> {
   const sql = neon(process.env.DATABASE_URL ?? "");
   return (await sql.query(
     `
-      select id, teacher_code as "teacherCode", name, email, category, academic_degree as "academicDegree"
+      select id, teacher_code as "teacherCode", name, email, category, academic_degree as "academicDegree", department
       from teacher_profiles
       where teacher_code is not null and email <> ''
       order by name asc
@@ -162,7 +166,7 @@ async function createClerkUser(teacher: ImportTeacher) {
     skip_password_requirement: true,
     public_metadata: {
       role: "docente",
-      school,
+      school: normalizeDepartment(teacher.department ?? school),
       teacherCode: teacher.teacherCode,
     },
     private_metadata: {
@@ -220,15 +224,15 @@ function buildSql(
     name: string;
     teacherCode: string;
     teacherId: string;
+    department: string;
   }[],
-  selectedSchool: string,
 ) {
   const values = users
     .map(
       (user) =>
         `(${sqlString(user.clerkUserId)}, ${sqlString(user.email)}, ${sqlString(
           user.name,
-        )}, ${sqlString(user.imageUrl)}, 'docente', ${sqlString(selectedSchool)}, ${sqlString(
+        )}, ${sqlString(user.imageUrl)}, 'docente', ${sqlString(user.department)}, ${sqlString(
           user.teacherCode,
         )}, ${sqlString(user.teacherId)})`,
     )

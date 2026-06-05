@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { normalizeDepartment } from "../src/lib/schedule-data";
 import { type AppRole, ensureScheduleSchema } from "../src/lib/schedule-db";
 
 type ClerkEmail = {
@@ -21,7 +22,7 @@ const selectedAdminEmails = adminEmails.length
   ? adminEmails
   : ["raillyhugo@gmail.com", "hpaucar@unmsm.edu.pe"];
 const resetNonAdmins = !args.includes("--preserve-non-admin-roles");
-const defaultSchool = valueAfter("--school") ?? "Ing. de Sistemas";
+const defaultSchool = normalizeDepartment(valueAfter("--school"));
 
 if (!process.env.CLERK_SECRET_KEY) {
   throw new Error("CLERK_SECRET_KEY is required.");
@@ -67,10 +68,17 @@ for (const update of updates) {
 await ensureScheduleSchema();
 const sql = neon(process.env.DATABASE_URL);
 const teacherRows = (await sql.query(
-  "select lower(email) as email, teacher_code from teacher_profiles",
-)) as { email: string; teacher_code: string | null }[];
+  "select lower(email) as email, teacher_code, department from teacher_profiles",
+)) as {
+  email: string;
+  teacher_code: string | null;
+  department: string | null;
+}[];
 const teacherCodeByEmail = new Map(
   teacherRows.map((row) => [row.email, row.teacher_code?.trim() ?? ""]),
+);
+const teacherDepartmentByEmail = new Map(
+  teacherRows.map((row) => [row.email, normalizeDepartment(row.department)]),
 );
 
 for (const update of updates) {
@@ -78,6 +86,10 @@ for (const update of updates) {
     update.role === "admin"
       ? "ADMIN"
       : (teacherCodeByEmail.get(update.email) ?? "");
+  const school =
+    update.role === "docente"
+      ? (teacherDepartmentByEmail.get(update.email) ?? defaultSchool)
+      : defaultSchool;
   await sql.query(
     `
       insert into app_users (clerk_user_id, email, name, image_url, role, school, code)
@@ -100,7 +112,7 @@ for (const update of updates) {
       displayName(update.user, update.email),
       update.user.image_url ?? "",
       update.role,
-      defaultSchool,
+      school,
       code,
     ],
   );

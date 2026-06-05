@@ -129,6 +129,7 @@ import {
   courseCatalog,
   type DayKey,
   days,
+  departments,
   formatHour,
   hours,
   schools,
@@ -393,6 +394,9 @@ export function ScheduleApp({
     (course) => course.active !== false,
   );
   const schoolOptions = data.schools.length ? data.schools : schools;
+  const departmentOptions = data.departments.length
+    ? data.departments
+    : departments;
   const catalogForSchool = visibleCoursesForSchool(activeCatalog, school);
   const completion = completionFor(profile, validation);
   const canUseAdmin = data.canUseAdmin;
@@ -945,7 +949,7 @@ export function ScheduleApp({
           currentUserId={data.currentUserId}
           onSetUserAccess={handleSetUserAccess}
           saving={saving}
-          schools={schoolOptions}
+          departments={departmentOptions}
           users={data.users}
         />
       ) : view === "auditoria" && canUseAdmin ? (
@@ -1062,9 +1066,9 @@ export function OnboardingRouteApp({ preview = false }: { preview?: boolean }) {
 
   return (
     <OnboardingView
-      defaultSchool={data.onboarding.school || schools[0]}
+      defaultSchool={data.onboarding.school || departments[0]}
       onComplete={handleComplete}
-      schoolOptions={data.schools.length ? data.schools : schools}
+      schoolOptions={data.departments.length ? data.departments : departments}
       userEmail={data.profile.email}
     />
   );
@@ -1499,8 +1503,8 @@ function OnboardingView({
               Un solo perfil para registrar tu disponibilidad.
             </p>
             <p className="text-sidebar-foreground/75 text-sm leading-6">
-              Verificaremos tu escuela profesional y código docente antes de
-              abrir el horario del semestre.
+              Verificaremos tu departamento y código docente antes de abrir el
+              horario del semestre.
             </p>
           </div>
           <div className="grid gap-2 text-sm">
@@ -1548,14 +1552,14 @@ function OnboardingView({
                 </FieldDescription>
               </Field>
               <Field>
-                <FieldLabel>Escuela profesional</FieldLabel>
+                <FieldLabel>Departamento</FieldLabel>
                 <Select value={school} onValueChange={setSchool}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecciona escuela" />
+                    <SelectValue placeholder="Selecciona departamento" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectLabel>Escuelas</SelectLabel>
+                      <SelectLabel>Departamentos</SelectLabel>
                       {schoolOptions.map((item) => (
                         <SelectItem key={item} value={item}>
                           {item}
@@ -2485,19 +2489,19 @@ function CourseCatalogTable({
 
 function UsersAccessView({
   currentUserId,
+  departments: departmentOptions,
   onSetUserAccess,
   saving,
-  schools,
   users,
 }: {
   currentUserId: string;
+  departments: string[];
   onSetUserAccess: (
     userId: string,
     role: AppRole,
     school: string,
   ) => Promise<SchedulePayload | null>;
   saving: boolean;
-  schools: string[];
   users: ScheduleUser[];
 }) {
   const [query, setQuery] = useState("");
@@ -2535,7 +2539,7 @@ function UsersAccessView({
                 Usuarios institucionales
               </CardTitle>
               <CardDescription className="truncate">
-                Roles, escuelas, padrón docente e ingreso real.
+                Roles, departamentos, padrón docente e ingreso real.
               </CardDescription>
             </div>
             <Badge variant="secondary">
@@ -2595,7 +2599,7 @@ function UsersAccessView({
             filtersActive={filtersActive}
             onSetUserAccess={onSetUserAccess}
             saving={saving}
-            schools={schools}
+            departments={departmentOptions}
             users={filteredUsers}
           />
         </CardContent>
@@ -2631,14 +2635,15 @@ function UsersAccessView({
 function UsersAccessTable({
   clearFilters,
   currentUserId,
+  departments: departmentOptions,
   filtersActive,
   onSetUserAccess,
   saving,
-  schools,
   users,
 }: {
   clearFilters: () => void;
   currentUserId: string;
+  departments: string[];
   filtersActive: boolean;
   onSetUserAccess: (
     userId: string,
@@ -2646,7 +2651,6 @@ function UsersAccessTable({
     school: string,
   ) => Promise<SchedulePayload | null>;
   saving: boolean;
-  schools: string[];
   users: ScheduleUser[];
 }) {
   if (!users.length) {
@@ -2684,7 +2688,7 @@ function UsersAccessTable({
             <TableHead className="h-9 min-w-[250px] px-2">Usuario</TableHead>
             <TableHead className="h-9 w-52 px-2">Padrón</TableHead>
             <TableHead className="h-9 w-40 px-2">Rol</TableHead>
-            <TableHead className="h-9 w-56 px-2">Escuela</TableHead>
+            <TableHead className="h-9 w-56 px-2">Departamento</TableHead>
             <TableHead className="h-9 w-36 px-2">Ingreso</TableHead>
             <TableHead className="h-9 w-32 px-2">Horario</TableHead>
             <TableHead className="h-9 w-36 px-2 text-right">
@@ -2762,8 +2766,8 @@ function UsersAccessTable({
                   <Select
                     disabled={saving}
                     value={user.school}
-                    onValueChange={(school) =>
-                      onSetUserAccess(user.clerkUserId, user.role, school)
+                    onValueChange={(department) =>
+                      onSetUserAccess(user.clerkUserId, user.role, department)
                     }
                   >
                     <SelectTrigger className="w-full" size="sm">
@@ -2771,10 +2775,10 @@ function UsersAccessTable({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectLabel>Escuela</SelectLabel>
-                        {schools.map((school) => (
-                          <SelectItem key={school} value={school}>
-                            {school}
+                        <SelectLabel>Departamento</SelectLabel>
+                        {departmentOptions.map((department) => (
+                          <SelectItem key={department} value={department}>
+                            {department}
                           </SelectItem>
                         ))}
                       </SelectGroup>
@@ -4325,7 +4329,9 @@ function courseMeta(course: Course) {
 }
 
 function teacherButtonMeta(teacher: TeacherProfile) {
-  return [teacher.teacherCode, teacher.email].filter(Boolean).join(" · ");
+  return [teacher.teacherCode, teacher.department, teacher.email]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function teacherProfileSummary(teacher: TeacherProfile) {
@@ -4333,6 +4339,7 @@ function teacherProfileSummary(teacher: TeacherProfile) {
     contractRules[teacher.contract].label,
     statusLabel(teacher.status),
     teacher.teacherCode ? `Código ${teacher.teacherCode}` : "",
+    teacher.department,
     teacher.category,
     teacher.academicDegree,
   ]

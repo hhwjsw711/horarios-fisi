@@ -28,6 +28,7 @@ export type TeacherProfile = {
   email: string;
   category?: string;
   academicDegree?: string;
+  department?: string;
   contract: ContractKey;
   status: "enviado" | "borrador" | "observado" | "aprobado";
   courses: Course[];
@@ -101,6 +102,42 @@ export const schools = [
   "Administración",
   "Educación",
 ];
+
+export const departments = [
+  "Ciencias de la Computación",
+  "Ingeniería de Software",
+  "Estudios Generales",
+  "Ingeniería de Sistemas",
+  "Sin departamento",
+];
+
+const departmentLabels: Record<string, string> = {
+  CC: "Ciencias de la Computación",
+  "CIENCIAS DE LA COMPUTACION": "Ciencias de la Computación",
+  SW: "Ingeniería de Software",
+  "ING DE SOFTWARE": "Ingeniería de Software",
+  "INGENIERIA DE SOFTWARE": "Ingeniería de Software",
+  EG: "Estudios Generales",
+  "ESTUDIOS GENERALES": "Estudios Generales",
+  SI: "Ingeniería de Sistemas",
+  "ING DE SISTEMAS": "Ingeniería de Sistemas",
+  "INGENIERIA DE SISTEMAS": "Ingeniería de Sistemas",
+  "SIN DEPARTAMENTO": "Sin departamento",
+};
+
+export function normalizeDepartment(value?: string | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return "Sin departamento";
+  }
+  const key = raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ")
+    .toLocaleUpperCase("es-PE");
+  return departmentLabels[key] ?? raw;
+}
 
 export const courseCatalog: Course[] = [
   { id: "algoritmos", name: "Algoritmos", school: "Ing. de Sistemas" },
