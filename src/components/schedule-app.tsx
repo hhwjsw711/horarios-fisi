@@ -1738,8 +1738,8 @@ function DocenteView({
   const sandboxMode = teacherMode === "sandbox";
 
   return (
-    <section className="grid h-full min-h-0 gap-3 overflow-hidden p-3 xl:grid-cols-[minmax(0,1fr)_330px]">
-      <Card className="min-h-0 overflow-hidden">
+    <section className="grid h-full min-h-0 gap-3 overflow-y-auto overflow-x-hidden p-3 xl:grid-cols-[minmax(0,1fr)_330px] xl:overflow-hidden">
+      <Card className="min-h-[760px] overflow-hidden xl:min-h-0">
         <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b px-3 py-1.5 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
@@ -1806,7 +1806,7 @@ function DocenteView({
           />
         </CardContent>
       </Card>
-      <aside className="grid min-h-0 content-start gap-3 overflow-hidden">
+      <aside className="grid min-h-0 content-start gap-3 overflow-visible xl:overflow-hidden">
         {sandboxMode ? (
           <Alert className="rounded-md p-2" variant="warning">
             <Info />
@@ -4004,63 +4004,124 @@ function ScheduleBoard({
   const selected = useMemo(() => new Set(availability), [availability]);
 
   return (
-    <div className="relative h-full overflow-x-auto overflow-y-hidden">
-      <div className="flex h-full min-w-[660px] flex-col">
-        <div className="grid h-11 shrink-0 grid-cols-[92px_repeat(6,minmax(94px,1fr))] border-b bg-primary text-primary-foreground text-sm">
-          <div className="flex items-center border-r px-3 font-medium">
-            Hora
-          </div>
-          {days.map((day) => (
-            <div
-              className="flex items-center justify-center border-r px-3 font-medium last:border-r-0"
-              key={day.key}
-            >
-              {day.label}
-            </div>
-          ))}
-        </div>
-        <div className="grid min-h-0 flex-1 grid-rows-[repeat(14,minmax(0,1fr))]">
-          {hours.map((hour) => (
-            <div
-              className="grid min-h-0 grid-cols-[92px_repeat(6,minmax(94px,1fr))] border-b last:border-b-0"
-              key={hour}
-            >
-              <div className="flex items-center justify-center border-r bg-muted/55 px-1.5 text-center font-medium text-[11px] tabular-nums leading-tight">
-                {formatHour(hour)}
-              </div>
-              {days.map((day) => {
-                const key = slotKey(day.key, hour);
-                const isSelected = selected.has(key);
-                const Cell = interactive ? "button" : "div";
-                const label = `${day.label} ${formatHour(hour)}: ${
-                  isSelected ? "disponible" : "sin marcar"
-                }`;
-                return (
-                  <Cell
-                    aria-label={interactive ? label : undefined}
-                    aria-pressed={interactive ? isSelected : undefined}
-                    className={cn(
-                      "flex min-h-0 items-center justify-center border-r text-xs transition-colors last:border-r-0",
-                      isSelected
-                        ? "bg-availability text-white"
-                        : "bg-card hover:bg-availability-muted",
-                      interactive &&
-                        "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    )}
-                    key={key}
-                    onClick={
-                      interactive
-                        ? () => onToggleSlot?.(day.key, hour)
-                        : undefined
-                    }
-                    type={interactive ? "button" : undefined}
+    <div className="relative h-[560px] overflow-hidden md:h-full">
+      <div className="h-full overflow-y-auto p-2 md:hidden">
+        <div className="grid gap-2">
+          {days.map((day) => {
+            const selectedCount = hours.filter((hour) =>
+              selected.has(slotKey(day.key, hour)),
+            ).length;
+            return (
+              <div
+                className="overflow-hidden rounded-md border bg-card"
+                key={day.key}
+              >
+                <div className="flex h-10 items-center justify-between border-b bg-primary px-3 text-primary-foreground">
+                  <div className="font-medium">{day.label}</div>
+                  <Badge
+                    variant="secondary"
+                    className="bg-card text-card-foreground"
                   >
-                    {isSelected ? <Check className="size-4" /> : null}
-                  </Cell>
-                );
-              })}
+                    {selectedCount} h
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 p-2">
+                  {hours.map((hour) => {
+                    const key = slotKey(day.key, hour);
+                    const isSelected = selected.has(key);
+                    const Cell = interactive ? "button" : "div";
+                    const label = `${day.label} ${formatHour(hour)}: ${
+                      isSelected ? "disponible" : "sin marcar"
+                    }`;
+                    return (
+                      <Cell
+                        aria-label={interactive ? label : undefined}
+                        aria-pressed={interactive ? isSelected : undefined}
+                        className={cn(
+                          "flex h-9 items-center justify-between rounded-md border px-2 text-left text-xs transition-colors",
+                          isSelected
+                            ? "border-availability bg-availability text-white"
+                            : "bg-muted/20 hover:bg-availability-muted",
+                          interactive &&
+                            "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        )}
+                        key={key}
+                        onClick={
+                          interactive
+                            ? () => onToggleSlot?.(day.key, hour)
+                            : undefined
+                        }
+                        type={interactive ? "button" : undefined}
+                      >
+                        <span className="tabular-nums">{formatHour(hour)}</span>
+                        {isSelected ? <Check className="size-3.5" /> : null}
+                      </Cell>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="hidden h-full overflow-x-auto overflow-y-hidden md:block">
+        <div className="flex h-full min-w-[660px] flex-col">
+          <div className="grid h-11 shrink-0 grid-cols-[92px_repeat(6,minmax(94px,1fr))] border-b bg-primary text-primary-foreground text-sm">
+            <div className="flex items-center border-r px-3 font-medium">
+              Hora
             </div>
-          ))}
+            {days.map((day) => (
+              <div
+                className="flex items-center justify-center border-r px-3 font-medium last:border-r-0"
+                key={day.key}
+              >
+                {day.label}
+              </div>
+            ))}
+          </div>
+          <div className="grid min-h-0 flex-1 grid-rows-[repeat(14,minmax(0,1fr))]">
+            {hours.map((hour) => (
+              <div
+                className="grid min-h-0 grid-cols-[92px_repeat(6,minmax(94px,1fr))] border-b last:border-b-0"
+                key={hour}
+              >
+                <div className="flex items-center justify-center border-r bg-muted/55 px-1.5 text-center font-medium text-[11px] tabular-nums leading-tight">
+                  {formatHour(hour)}
+                </div>
+                {days.map((day) => {
+                  const key = slotKey(day.key, hour);
+                  const isSelected = selected.has(key);
+                  const Cell = interactive ? "button" : "div";
+                  const label = `${day.label} ${formatHour(hour)}: ${
+                    isSelected ? "disponible" : "sin marcar"
+                  }`;
+                  return (
+                    <Cell
+                      aria-label={interactive ? label : undefined}
+                      aria-pressed={interactive ? isSelected : undefined}
+                      className={cn(
+                        "flex min-h-0 items-center justify-center border-r text-xs transition-colors last:border-r-0",
+                        isSelected
+                          ? "bg-availability text-white"
+                          : "bg-card hover:bg-availability-muted",
+                        interactive &&
+                          "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      )}
+                      key={key}
+                      onClick={
+                        interactive
+                          ? () => onToggleSlot?.(day.key, hour)
+                          : undefined
+                      }
+                      type={interactive ? "button" : undefined}
+                    >
+                      {isSelected ? <Check className="size-4" /> : null}
+                    </Cell>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
       {!interactive && emptyLabel && availability.length === 0 ? (
