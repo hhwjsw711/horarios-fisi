@@ -1739,13 +1739,14 @@ function DocenteView({
 
   return (
     <section className="grid h-full min-h-0 gap-3 overflow-y-auto overflow-x-hidden p-3 xl:grid-cols-[minmax(0,1fr)_330px] xl:overflow-hidden">
-      <Card className="min-h-[760px] overflow-hidden xl:min-h-0">
-        <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b px-3 py-1.5 md:flex-row md:items-center md:justify-between">
+      <Card className="min-h-[700px] overflow-hidden xl:min-h-0">
+        <CardHeader className="grid shrink-0 gap-2 border-b px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
           <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <CardTitle className="truncate font-serif text-xl">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <CardTitle className="truncate font-serif text-lg md:text-xl">
                 Disponibilidad docente
               </CardTitle>
+              <Badge variant="secondary">{academicTerm}</Badge>
               {sandboxMode ? (
                 <Badge
                   variant="outline"
@@ -1755,9 +1756,6 @@ function DocenteView({
                 </Badge>
               ) : null}
             </div>
-            <CardDescription className="truncate">
-              Vista completa del horario {academicTerm}.
-            </CardDescription>
           </div>
           <Toolbar className="shrink-0 border-0 bg-transparent p-0 shadow-none">
             <ToolbarGroup>
@@ -1771,8 +1769,10 @@ function DocenteView({
                 value={profile.contract}
                 onValueChange={handleContractChange}
               >
-                <SelectTrigger className="w-[190px]">
-                  <SelectValue placeholder="Clase docente" />
+                <SelectTrigger className="w-[190px] max-w-[calc(100vw-160px)]">
+                  <span className="truncate">
+                    {contractRules[profile.contract].label}
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
@@ -1853,6 +1853,12 @@ function DocenteRuleStrip({
   validation: Validation;
 }) {
   const rule = contractRules[profile.contract];
+  const blockLabel =
+    rule.requiredDailyBlockCount > 1
+      ? `${rule.requiredDailyBlockCount} bloques de 4 h`
+      : "bloque de 4 h";
+  const courseLabel = rule.maxCourses === 1 ? "curso" : "cursos";
+  const ruleSummary = `${rule.requiredDailyHours} h/día · ${blockLabel} · ${rule.requiredBlockDays} días · máx. ${rule.maxCourses} ${courseLabel}`;
   const items = [
     {
       complete: validation.selectedHours >= rule.requiredHours,
@@ -1874,28 +1880,35 @@ function DocenteRuleStrip({
   ];
 
   return (
-    <div className="grid shrink-0 gap-2 border-b bg-muted/25 px-3 py-2 text-sm lg:grid-cols-[minmax(0,1fr)_minmax(360px,auto)] lg:items-center">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 font-medium">
-          <Info className="size-4 text-gold" />
-          <span>Reglas activas</span>
+    <div className="grid shrink-0 gap-1.5 border-b bg-muted/20 px-3 py-1.5 text-sm lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+      <div className="min-w-0 space-y-0.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="flex items-center gap-1.5 font-medium">
+            <Info className="size-4 text-gold" />
+            Reglas
+          </span>
+          <span className="text-muted-foreground text-xs md:text-sm">
+            {ruleSummary}
+          </span>
         </div>
-        <p className="mt-1 text-muted-foreground">{rule.text}</p>
         {!validation.complete ? (
-          <p className="mt-1 text-warning text-xs">
+          <p className="truncate text-warning text-xs md:text-sm">
             {scheduleCorrectionMessage(profile, validation)}
           </p>
         ) : null}
       </div>
-      <div className="grid min-w-0 grid-cols-3 gap-2">
+      <div className="grid min-w-0 grid-cols-3 gap-1.5">
         {items.map((item) => (
-          <div className="rounded-md border bg-card px-2 py-1" key={item.label}>
+          <div
+            className="rounded-md border bg-card px-2 py-1 leading-tight"
+            key={item.label}
+          >
             <div className="truncate text-muted-foreground text-xs">
               {item.label}
             </div>
             <div
               className={cn(
-                "font-semibold tabular-nums",
+                "font-semibold text-sm tabular-nums",
                 item.complete ? "text-availability" : "text-foreground",
               )}
             >
@@ -1941,6 +1954,10 @@ function CoursesEditorCard({
   setCourseId: (id: string) => void;
   setSchool: (school: string) => void;
 }) {
+  const selectedCourse = catalogForSchool.find(
+    (course) => course.id === courseId,
+  );
+
   return (
     <Card className="min-h-0 overflow-hidden">
       <CardHeader className="shrink-0 border-b px-2.5 py-1.5">
@@ -1965,7 +1982,7 @@ function CoursesEditorCard({
         <div className="grid gap-1.5">
           <Select disabled={disabled} value={school} onValueChange={setSchool}>
             <SelectTrigger className="w-full" size="sm">
-              <SelectValue placeholder="Escuela" />
+              <span className="truncate">{school}</span>
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -1985,7 +2002,9 @@ function CoursesEditorCard({
               onValueChange={setCourseId}
             >
               <SelectTrigger className="w-full" size="sm">
-                <SelectValue placeholder="Curso" />
+                <span className="truncate">
+                  {selectedCourse ? courseLabel(selectedCourse) : "Curso"}
+                </span>
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
