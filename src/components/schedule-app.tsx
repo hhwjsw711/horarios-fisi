@@ -35,6 +35,11 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  completeOnboardingMutation,
+  runScheduleMutation,
+  runTeacherCourseImport,
+} from "@/app/schedule-actions";
+import {
   Alert,
   AlertAction,
   AlertDescription,
@@ -121,6 +126,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { ScheduleMutationAction } from "@/lib/schedule-action-types";
 import { visibleCoursesForSchool } from "@/lib/schedule-courses";
 import {
   type ContractKey,
@@ -166,27 +172,6 @@ type UserOnboardingFilter = "all" | "complete" | "pending";
 type CourseStatusFilter = "all" | "active" | "suspended";
 type TeacherStatusCounts = Record<TeacherProfile["status"], number>;
 
-type ScheduleAction =
-  | { action: "setContract"; contract: ContractKey }
-  | { action: "setAvailability"; availability: string[] }
-  | { action: "addCourse"; courseId: string }
-  | { action: "removeCourse"; courseId: string }
-  | { action: "assignTeacherCourse"; teacherId: string; courseId: string }
-  | { action: "unassignTeacherCourse"; teacherId: string; courseId: string }
-  | { action: "observe"; teacherId: string; note: string }
-  | { action: "approve"; teacherId: string }
-  | { action: "createCourse"; name: string; school: string; isThesis: boolean }
-  | { action: "setCourseActive"; courseId: string; active: boolean }
-  | { action: "setAcademicTerm"; academicTerm: string }
-  | {
-      action: "setUserAccess";
-      userId: string;
-      role: AppRole;
-      school: string;
-    }
-  | { action: "setPeriodClosed"; closed: boolean }
-  | { action: "submit" };
-
 type ApiError = {
   error?: string;
 };
@@ -230,6 +215,7 @@ export function ScheduleApp({
 }) {
   const router = useRouter();
   const endpoint = preview ? "/api/schedule?preview=1" : "/api/schedule";
+  const useServerActions = Boolean(initialData) && !preview;
   const [data, setData] = useState<SchedulePayload | null>(
     () => initialData ?? schedulePayloadCache.get(endpoint) ?? null,
   );
@@ -353,7 +339,7 @@ export function ScheduleApp({
   ]);
 
   const request = async (
-    body: ScheduleAction,
+    body: ScheduleMutationAction,
     options: { commitPayload?: boolean; showSaving?: boolean } = {},
   ) => {
     const showSaving = options.showSaving ?? true;
@@ -361,6 +347,17 @@ export function ScheduleApp({
       setSaving(true);
     }
     try {
+      if (useServerActions) {
+        const result = await runScheduleMutation(body);
+        if (!result.ok) {
+          toast.error(result.error);
+          return null;
+        }
+        if (options.commitPayload !== false) {
+          writeData(result.payload);
+        }
+        return result.payload;
+      }
       const response = await fetch(endpoint, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -812,6 +809,28 @@ export function ScheduleApp({
   }) => {
     setSaving(true);
     try {
+      if (useServerActions) {
+        const result = await runTeacherCourseImport({
+          apply,
+          csv,
+          replaceTeachers,
+        });
+        if (!result.ok) {
+          toast.error(result.error);
+          return null;
+        }
+        writeData(result.result.payload);
+        if (result.result.ok) {
+          toast.success(
+            result.result.applied
+              ? "Carga docente aplicada."
+              : "CSV validado correctamente.",
+          );
+        } else {
+          toast.error("CSV con observaciones por corregir.");
+        }
+        return result.result;
+      }
       const response = await fetch(endpoint, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1056,6 +1075,7 @@ export function OnboardingRouteApp({
   );
   const [error, setError] = useState<string | null>(null);
   const endpoint = preview ? "/api/schedule?preview=1" : "/api/schedule";
+  const useServerActions = Boolean(initialData) && !preview;
 
   useEffect(() => {
     if (initialData) {
@@ -1072,6 +1092,19 @@ export function OnboardingRouteApp({
   }, [endpoint, initialData]);
 
   const handleComplete = async (next: Onboarding) => {
+    if (useServerActions) {
+      const result = await completeOnboardingMutation({
+        role: next.role,
+        school: next.school,
+        code: next.code,
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      router.push(result.payload.canUseDirection ? "/direccion" : "/docente");
+      return;
+    }
     const response = await fetch(endpoint, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
