@@ -152,7 +152,7 @@ import {
 } from "@/lib/schedule-rules";
 import { cn } from "@/lib/utils";
 
-type ViewKey =
+export type ViewKey =
   | "docente"
   | "direccion"
   | "configuracion"
@@ -206,24 +206,45 @@ async function readApiError(response: Response, fallback: string) {
   }
 }
 
+function initialCourseSchool(payload: SchedulePayload) {
+  return payload.profile.courses[0]?.school ?? payload.schools[0] ?? schools[0];
+}
+
+function initialCourseId(payload: SchedulePayload, school: string) {
+  const activeCatalog = payload.catalog.filter(
+    (course) => course.active !== false,
+  );
+  return (
+    visibleCoursesForSchool(activeCatalog, school)[0]?.id ?? courseCatalog[0].id
+  );
+}
+
 export function ScheduleApp({
+  initialData,
   preview = false,
   view,
 }: {
+  initialData?: SchedulePayload;
   preview?: boolean;
   view: ViewKey;
 }) {
   const router = useRouter();
   const endpoint = preview ? "/api/schedule?preview=1" : "/api/schedule";
   const [data, setData] = useState<SchedulePayload | null>(
-    () => schedulePayloadCache.get(endpoint) ?? null,
+    () => initialData ?? schedulePayloadCache.get(endpoint) ?? null,
   );
   const [error, setError] = useState<string | null>(null);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(
-    null,
+    () => initialData?.profile.id ?? null,
   );
-  const [school, setSchool] = useState(schools[0]);
-  const [courseId, setCourseId] = useState(courseCatalog[0].id);
+  const [school, setSchool] = useState(() =>
+    initialData ? initialCourseSchool(initialData) : schools[0],
+  );
+  const [courseId, setCourseId] = useState(() =>
+    initialData
+      ? initialCourseId(initialData, initialCourseSchool(initialData))
+      : courseCatalog[0].id,
+  );
   const [showOnlyPending, setShowOnlyPending] = useState(false);
   const [teacherQuery, setTeacherQuery] = useState("");
   const [teacherStatusFilter, setTeacherStatusFilter] =
@@ -267,8 +288,7 @@ export function ScheduleApp({
     }
     const payload = (await response.json()) as SchedulePayload;
     writeData(payload);
-    const nextSchool =
-      payload.onboarding.school || payload.schools[0] || schools[0];
+    const nextSchool = initialCourseSchool(payload);
     const visibleCatalog = visibleCoursesForSchool(payload.catalog, nextSchool);
     setSchool(nextSchool);
     setCourseId((current) =>
@@ -280,8 +300,12 @@ export function ScheduleApp({
   }, [endpoint, writeData]);
 
   useEffect(() => {
+    if (initialData) {
+      schedulePayloadCache.set(endpoint, initialData);
+      return;
+    }
     load();
-  }, [load]);
+  }, [endpoint, initialData, load]);
 
   useEffect(() => {
     if (!preview && data && !data.onboarding.complete) {
@@ -1019,13 +1043,24 @@ export function ScheduleApp({
   );
 }
 
-export function OnboardingRouteApp({ preview = false }: { preview?: boolean }) {
+export function OnboardingRouteApp({
+  initialData,
+  preview = false,
+}: {
+  initialData?: SchedulePayload;
+  preview?: boolean;
+}) {
   const router = useRouter();
-  const [data, setData] = useState<SchedulePayload | null>(null);
+  const [data, setData] = useState<SchedulePayload | null>(
+    () => initialData ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
   const endpoint = preview ? "/api/schedule?preview=1" : "/api/schedule";
 
   useEffect(() => {
+    if (initialData) {
+      return;
+    }
     fetch(endpoint, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) {
@@ -1034,7 +1069,7 @@ export function OnboardingRouteApp({ preview = false }: { preview?: boolean }) {
         setData((await response.json()) as SchedulePayload);
       })
       .catch((caught) => setError(caught.message));
-  }, [endpoint]);
+  }, [endpoint, initialData]);
 
   const handleComplete = async (next: Onboarding) => {
     const response = await fetch(endpoint, {

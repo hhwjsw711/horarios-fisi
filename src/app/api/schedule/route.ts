@@ -1,4 +1,4 @@
-import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
+import { clerkClient } from "@clerk/nextjs/server";
 import { type NextRequest, NextResponse } from "next/server";
 import { type ContractKey, contractRules } from "@/lib/schedule-data";
 import type { AppRole } from "@/lib/schedule-db";
@@ -24,6 +24,7 @@ import {
   unassignTeacherCourse,
   validateUserAccessChange,
 } from "@/lib/schedule-db";
+import { isAppRole, resolveScheduleIdentity } from "@/lib/schedule-identity";
 
 export async function GET(request: NextRequest) {
   const identity = await resolveIdentity(request);
@@ -47,7 +48,7 @@ export async function PATCH(request: NextRequest) {
   try {
     if (body.action === "completeOnboarding") {
       if (
-        !isRole(body.role) ||
+        !isAppRole(body.role) ||
         typeof body.school !== "string" ||
         typeof body.code !== "string"
       ) {
@@ -157,7 +158,7 @@ export async function PATCH(request: NextRequest) {
     if (body.action === "setUserAccess") {
       if (
         typeof body.userId !== "string" ||
-        !isRole(body.role) ||
+        !isAppRole(body.role) ||
         typeof body.school !== "string"
       ) {
         return NextResponse.json({ error: "Invalid user" }, { status: 400 });
@@ -207,10 +208,6 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ error: "Invalid action" }, { status: 400 });
 }
 
-function isRole(value: unknown): value is AppRole {
-  return value === "docente" || value === "direccion" || value === "admin";
-}
-
 function isContractKey(value: unknown): value is ContractKey {
   return typeof value === "string" && value in contractRules;
 }
@@ -232,42 +229,5 @@ async function resolveIdentity(
   const preview =
     process.env.NODE_ENV !== "production" &&
     request.nextUrl.searchParams.get("preview") === "1";
-  if (preview) {
-    return {
-      clerkUserId: "local-preview",
-      email: "preview@unmsm.edu.pe",
-      name: "Vista local",
-      preview: true,
-    };
-  }
-  try {
-    const { userId } = await auth();
-    if (userId) {
-      const user = await currentUser();
-      const role = isRole(user?.publicMetadata?.role)
-        ? user.publicMetadata.role
-        : undefined;
-      return {
-        clerkUserId: userId,
-        email:
-          user?.primaryEmailAddress?.emailAddress ?? `${userId}@unmsm.edu.pe`,
-        imageUrl: user?.imageUrl,
-        name: user?.fullName ?? user?.firstName ?? "Docente UNMSM",
-        role,
-      };
-    }
-  } catch {
-    if (process.env.NODE_ENV === "production") {
-      return null;
-    }
-  }
-  if (process.env.NODE_ENV !== "production") {
-    return {
-      clerkUserId: "local-preview",
-      email: "preview@unmsm.edu.pe",
-      name: "Vista local",
-      preview: true,
-    };
-  }
-  return null;
+  return resolveScheduleIdentity({ preview });
 }

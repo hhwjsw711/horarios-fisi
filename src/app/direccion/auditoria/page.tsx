@@ -1,5 +1,5 @@
-import { ScheduleApp } from "@/components/schedule-app";
+import { ScheduleRoute } from "@/app/schedule-route";
 
 export default function AuditoriaPage() {
-  return <ScheduleApp view="auditoria" />;
+  return <ScheduleRoute view="auditoria" />;
 }

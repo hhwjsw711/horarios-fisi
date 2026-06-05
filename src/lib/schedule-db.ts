@@ -177,6 +177,14 @@ type AvailabilityRow = {
   hour: number;
 };
 
+type TeacherCourseRow = CourseRow & {
+  teacher_id: string;
+};
+
+type TeacherAvailabilityRow = AvailabilityRow & {
+  teacher_id: string;
+};
+
 type SandboxTeacherRow = {
   id: string;
   owner_user_id: string;
@@ -554,20 +562,30 @@ export async function getSchedulePayload(
       : canUseDirection
         ? "administrative"
         : "official";
-  const catalog = await readCourseCatalog();
-  const schoolOptions = await readSchools();
-  const departmentOptions = await readDepartments();
-  const settings = await readSettings();
   const departmentScope = canUseAdmin
     ? undefined
     : normalizeDepartment(user.school);
-  const teachers = canUseDirection
-    ? await readTeachers(departmentScope)
-    : [profile];
-  const users = canUseAdmin ? await readUsers() : [];
-  const events = canUseDirection
-    ? await readScheduleEvents(undefined, departmentScope)
-    : await readScheduleEvents(profile.id);
+  const [
+    catalog,
+    schoolOptions,
+    departmentOptions,
+    settings,
+    teachers,
+    users,
+    events,
+  ] = await Promise.all([
+    readCourseCatalog(),
+    readSchools(),
+    readDepartments(),
+    readSettings(),
+    canUseDirection
+      ? readTeachers(departmentScope)
+      : Promise.resolve([profile]),
+    canUseAdmin ? readUsers() : Promise.resolve([]),
+    canUseDirection
+      ? readScheduleEvents(undefined, departmentScope)
+      : readScheduleEvents(profile.id),
+  ]);
   return {
     currentUserId: identity.clerkUserId,
     profile,
@@ -2110,7 +2128,52 @@ async function readTeachers(departmentScope?: string) {
     `,
     [departmentScope ?? null],
   )) as TeacherRow[];
-  return Promise.all(rows.map((row) => inflateTeacher(row)));
+  if (!rows.length) {
+    return [];
+  }
+  const teacherIds = rows.map((row) => row.id);
+  const courseRowsPromise = sql.query(
+    `
+      select tc.teacher_id, c.id, c.code, c.name, c.school, c.cycle, c.credits, c.course_type, c.curriculum, c.is_thesis
+      from teacher_courses tc
+      join courses c on c.id = tc.course_id
+      where tc.teacher_id = any($1::text[])
+      order by tc.teacher_id asc, tc.position asc, c.name asc
+    `,
+    [teacherIds],
+  ) as unknown as Promise<TeacherCourseRow[]>;
+  const availabilityRowsPromise = sql.query(
+    `
+      select teacher_id, day_key, hour
+      from teacher_availability
+      where teacher_id = any($1::text[])
+      order by teacher_id asc, day_key asc, hour asc
+    `,
+    [teacherIds],
+  ) as unknown as Promise<TeacherAvailabilityRow[]>;
+  const [courseRows, availabilityRows] = await Promise.all([
+    courseRowsPromise,
+    availabilityRowsPromise,
+  ]);
+  const coursesByTeacher = new Map<string, CourseRow[]>();
+  for (const course of courseRows) {
+    const current = coursesByTeacher.get(course.teacher_id) ?? [];
+    current.push(course);
+    coursesByTeacher.set(course.teacher_id, current);
+  }
+  const availabilityByTeacher = new Map<string, AvailabilityRow[]>();
+  for (const availability of availabilityRows) {
+    const current = availabilityByTeacher.get(availability.teacher_id) ?? [];
+    current.push(availability);
+    availabilityByTeacher.set(availability.teacher_id, current);
+  }
+  return rows.map((row) =>
+    mapTeacherProfile(
+      row,
+      coursesByTeacher.get(row.id) ?? [],
+      availabilityByTeacher.get(row.id) ?? [],
+    ),
+  );
 }
 
 async function readTeacher(id: string) {
@@ -2168,6 +2231,14 @@ async function inflateTeacher(row: TeacherRow): Promise<TeacherProfile> {
     `,
     [row.id],
   )) as AvailabilityRow[];
+  return mapTeacherProfile(row, courseRows, availabilityRows);
+}
+
+function mapTeacherProfile(
+  row: TeacherRow,
+  courseRows: CourseRow[],
+  availabilityRows: AvailabilityRow[],
+): TeacherProfile {
   return {
     id: row.id,
     teacherCode: row.teacher_code ?? undefined,

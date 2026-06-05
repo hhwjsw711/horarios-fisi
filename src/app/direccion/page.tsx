@@ -1,5 +1,5 @@
-import { ScheduleApp } from "@/components/schedule-app";
+import { ScheduleRoute } from "@/app/schedule-route";
 
 export default function DireccionPage() {
-  return <ScheduleApp view="direccion" />;
+  return <ScheduleRoute view="direccion" />;
 }
