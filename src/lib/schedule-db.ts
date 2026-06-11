@@ -2397,19 +2397,17 @@ async function replaceSandboxAvailability(
 
 async function replaceCourses(teacherId: string, courseIds: string[]) {
   const sql = getSql();
-  await sql.query("delete from teacher_courses where teacher_id = $1", [
-    teacherId,
+  await sql.transaction((tx) => [
+    tx`delete from teacher_courses where teacher_id = ${teacherId}`,
+    ...courseIds.map(
+      (courseId, index) =>
+        tx`
+          insert into teacher_courses (teacher_id, course_id, position)
+          values (${teacherId}, ${courseId}, ${index + 1})
+          on conflict (teacher_id, course_id) do update set position = excluded.position
+        `,
+    ),
   ]);
-  for (const [index, courseId] of courseIds.entries()) {
-    await sql.query(
-      `
-        insert into teacher_courses (teacher_id, course_id, position)
-        values ($1, $2, $3)
-        on conflict (teacher_id, course_id) do update set position = excluded.position
-      `,
-      [teacherId, courseId, index + 1],
-    );
-  }
 }
 
 async function recordEvent(
