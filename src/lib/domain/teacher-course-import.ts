@@ -1,4 +1,4 @@
-import { type ContractKey, contractRules } from "@/lib/schedule-data";
+import { type ContractKey, contractRules } from "@/lib/domain/schedule-data";
 
 export type TeacherCourseImportTeacher = {
   id: string;

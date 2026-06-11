@@ -1,10 +1,7 @@
 import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import type { NextRequest } from "next/server";
-import {
-  type AppRole,
-  deleteClerkUser,
-  syncClerkUser,
-} from "@/lib/schedule-db";
+import { deleteClerkUser, syncClerkUser } from "@/lib/data/schedule-db";
+import type { AppRole } from "@/lib/domain/types";
 
 type ClerkEmail = {
   id: string;
@@ -22,8 +19,15 @@ type ClerkUserPayload = {
 };
 
 export async function POST(req: NextRequest) {
+  let event: Awaited<ReturnType<typeof verifyWebhook>>;
   try {
-    const event = await verifyWebhook(req);
+    event = await verifyWebhook(req);
+  } catch (error) {
+    console.error("clerk webhook verification failed", error);
+    return Response.json({ error: "Invalid webhook" }, { status: 400 });
+  }
+
+  try {
     const data = event.data as ClerkUserPayload;
     if (event.type === "user.deleted") {
       if (data.id) {
@@ -46,8 +50,13 @@ export async function POST(req: NextRequest) {
       }
     }
     return Response.json({ received: true });
-  } catch {
-    return Response.json({ error: "Invalid webhook" }, { status: 400 });
+  } catch (error) {
+    console.error(
+      "clerk webhook processing failed",
+      { type: event.type },
+      error,
+    );
+    return Response.json({ error: "Processing failed" }, { status: 500 });
   }
 }
 

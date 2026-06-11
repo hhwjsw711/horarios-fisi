@@ -11,7 +11,8 @@
     "dev": "next dev",
     "build": "next build",
     "test": "bun test",
-    "check": "bun run lint && bun run test && bun run build",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build",
     "db:migrate": "bun scripts/migrate.ts",
     "db:import:fisi": "bun scripts/import-fisi.ts",
     "db:import:docentes-fisi": "bun scripts/import-docentes-fisi.ts",
@@ -49,6 +50,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.2.0",
     "@tailwindcss/postcss": "^4",
+    "@types/bun": "^1.3.14",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

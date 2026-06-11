@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyScheduleSchema } from "@/lib/schedule-db";
+import { verifyScheduleSchema } from "@/lib/data/schedule-db";
 
 export const dynamic = "force-dynamic";
 

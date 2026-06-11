@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   courseBelongsToSchool,
   visibleCoursesForSchool,
-} from "@/lib/schedule-courses";
-import { courseCatalog } from "@/lib/schedule-data";
+} from "@/lib/domain/schedule-courses";
+import { courseCatalog } from "@/lib/domain/schedule-data";
 
 describe("schedule courses", () => {
   test("keeps transversal courses visible for every school", () => {

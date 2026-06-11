@@ -1,14 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { runScheduleAction } from "@/lib/schedule-action-runner";
+import { runScheduleAction } from "@/lib/api/schedule-action-runner";
 import type {
   CompleteOnboardingAction,
   ScheduleMutationAction,
   SchedulePayloadActionResponse,
   TeacherCourseImportActionResponse,
-} from "@/lib/schedule-action-types";
-import { resolveScheduleIdentity } from "@/lib/schedule-identity";
+} from "@/lib/api/schedule-action-types";
+import { resolveScheduleIdentity } from "@/lib/auth/schedule-identity";
 
 export async function runScheduleMutation(
   action: ScheduleMutationAction,

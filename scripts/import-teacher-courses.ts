@@ -5,7 +5,7 @@ import {
   parseTeacherCourseCsv,
   type TeacherCourseImportCourse,
   type TeacherCourseImportTeacher,
-} from "@/lib/teacher-course-import";
+} from "@/lib/domain/teacher-course-import";
 
 const source = process.argv[2];
 const apply = process.argv.includes("--apply");

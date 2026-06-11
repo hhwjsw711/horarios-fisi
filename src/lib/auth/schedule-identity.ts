@@ -1,5 +1,5 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
-import type { AppRole, ScheduleIdentity } from "@/lib/schedule-db";
+import type { AppRole, ScheduleIdentity } from "@/lib/domain/types";
 
 export function isAppRole(value: unknown): value is AppRole {
   return value === "docente" || value === "direccion" || value === "admin";

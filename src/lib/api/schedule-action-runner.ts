@@ -2,9 +2,8 @@ import { clerkClient } from "@clerk/nextjs/server";
 import type {
   ScheduleActionData,
   ScheduleActionRunResult,
-} from "@/lib/schedule-action-types";
-import { type ContractKey, contractRules } from "@/lib/schedule-data";
-import type { AppRole, ScheduleIdentity } from "@/lib/schedule-db";
+} from "@/lib/api/schedule-action-types";
+import { isAppRole } from "@/lib/auth/schedule-identity";
 import {
   addCourse,
   approveSchedule,
@@ -14,7 +13,6 @@ import {
   importTeacherCourses,
   observeSchedule,
   removeCourse,
-  ScheduleError,
   setAcademicTerm,
   setAvailability,
   setContract,
@@ -24,8 +22,10 @@ import {
   submitSchedule,
   unassignTeacherCourse,
   validateUserAccessChange,
-} from "@/lib/schedule-db";
-import { isAppRole } from "@/lib/schedule-identity";
+} from "@/lib/data/schedule-db";
+import { type ContractKey, contractRules } from "@/lib/domain/schedule-data";
+import type { AppRole, ScheduleIdentity } from "@/lib/domain/types";
+import { ScheduleError } from "@/lib/domain/types";
 
 export async function runScheduleAction(
   identity: ScheduleIdentity,

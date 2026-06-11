@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { verifyScheduleSchema } from "../src/lib/schedule-db";
+import { verifyScheduleSchema } from "../src/lib/data/schedule-db";
 
 type ClerkUser = {
   id: string;

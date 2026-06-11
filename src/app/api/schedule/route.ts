@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { runScheduleAction } from "@/lib/schedule-action-runner";
-import { getSchedulePayload, type ScheduleIdentity } from "@/lib/schedule-db";
-import { resolveScheduleIdentity } from "@/lib/schedule-identity";
+import { runScheduleAction } from "@/lib/api/schedule-action-runner";
+import { resolveScheduleIdentity } from "@/lib/auth/schedule-identity";
+import { getSchedulePayload } from "@/lib/data/schedule-db";
+import type { ScheduleIdentity } from "@/lib/domain/types";
 
 export async function GET(request: NextRequest) {
   const identity = await resolveIdentity(request);

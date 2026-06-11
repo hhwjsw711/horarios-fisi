@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { text } from "node:stream/consumers";
 import { neon } from "@neondatabase/serverless";
 import * as XLSX from "xlsx";
-import { ensureScheduleSchema } from "@/lib/schedule-db";
+import { ensureScheduleSchema } from "@/lib/data/schedule-db";
 
 type FisiCourse = {
   id: string;

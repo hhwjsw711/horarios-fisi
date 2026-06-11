@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { ScheduleApp, type ViewKey } from "@/components/schedule-app";
-import { getSchedulePayload } from "@/lib/schedule-db";
-import { resolveScheduleIdentity } from "@/lib/schedule-identity";
+import { resolveScheduleIdentity } from "@/lib/auth/schedule-identity";
+import { getSchedulePayload } from "@/lib/data/schedule-db";
 
 export async function ScheduleRoute({ view }: { view: ViewKey }) {
   const identity = await resolveScheduleIdentity();

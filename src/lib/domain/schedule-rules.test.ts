@@ -3,12 +3,12 @@ import {
   courseCatalog,
   seedSlots,
   type TeacherProfile,
-} from "@/lib/schedule-data";
+} from "@/lib/domain/schedule-data";
 import {
   completionForRules,
   courseAssignmentState,
   validateTeacherRules,
-} from "@/lib/schedule-rules";
+} from "@/lib/domain/schedule-rules";
 
 function profile(
   input: Pick<TeacherProfile, "availability" | "contract" | "courses">,

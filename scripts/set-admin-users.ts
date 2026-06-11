@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
-import { normalizeDepartment } from "../src/lib/schedule-data";
-import { type AppRole, ensureScheduleSchema } from "../src/lib/schedule-db";
+import { ensureScheduleSchema } from "../src/lib/data/schedule-db";
+import { normalizeDepartment } from "../src/lib/domain/schedule-data";
+import type { AppRole } from "../src/lib/domain/types";
 
 type ClerkEmail = {
   email_address: string;
@@ -18,9 +19,13 @@ type ClerkUser = {
 const args = process.argv.slice(2);
 const adminEmails =
   valuesAfter("--admin-email").map((email) => email.toLowerCase()) ?? [];
-const selectedAdminEmails = adminEmails.length
-  ? adminEmails
-  : ["raillyhugo@gmail.com", "hpaucar@unmsm.edu.pe"];
+if (!adminEmails.length) {
+  process.stderr.write(
+    "Usage: bun run clerk:set-admins -- --admin-email <email> [--admin-email <email>...]\n",
+  );
+  process.exit(1);
+}
+const selectedAdminEmails = adminEmails;
 const resetNonAdmins = !args.includes("--preserve-non-admin-roles");
 const defaultSchool = normalizeDepartment(valueAfter("--school"));
 

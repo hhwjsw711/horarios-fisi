@@ -2,7 +2,7 @@ import {
   ensureScheduleSchema,
   seedScheduleData,
   verifyScheduleSchema,
-} from "../src/lib/schedule-db";
+} from "../src/lib/data/schedule-db";
 
 await ensureScheduleSchema();
 await seedScheduleData({
