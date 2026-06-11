@@ -25,18 +25,17 @@ import {
   type TeacherCourseImportResult,
   type TeacherCourseImportTeacher,
 } from "@/lib/domain/teacher-course-import";
-import { ScheduleError } from "@/lib/domain/types";
 import type {
   AppRole,
   ClerkUserSyncInput,
   Onboarding,
-  ScheduleEvent,
   ScheduleIdentity,
   SchedulePayload,
   ScheduleSettings,
   ScheduleUser,
   TeacherCourseImportResponse,
 } from "@/lib/domain/types";
+import { ScheduleError } from "@/lib/domain/types";
 
 type AppUserRow = {
   clerk_user_id: string;

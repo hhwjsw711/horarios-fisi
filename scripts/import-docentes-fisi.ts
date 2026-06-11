@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import * as XLSX from "xlsx";
-import { normalizeDepartment } from "@/lib/domain/schedule-data";
 import { ensureScheduleSchema } from "@/lib/data/schedule-db";
+import { normalizeDepartment } from "@/lib/domain/schedule-data";
 
 type FisiTeacher = {
   id: string;

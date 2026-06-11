@@ -142,6 +142,12 @@ import {
   slotKey,
   type TeacherProfile,
 } from "@/lib/domain/schedule-data";
+import {
+  completionForRules,
+  courseAssignmentState,
+  type ScheduleValidation,
+  validateTeacherRules,
+} from "@/lib/domain/schedule-rules";
 import type {
   AppRole,
   Onboarding,
@@ -150,12 +156,6 @@ import type {
   ScheduleUser,
   TeacherCourseImportResponse,
 } from "@/lib/domain/types";
-import {
-  completionForRules,
-  courseAssignmentState,
-  type ScheduleValidation,
-  validateTeacherRules,
-} from "@/lib/domain/schedule-rules";
 import { cn } from "@/lib/utils";
 
 export type ViewKey =
