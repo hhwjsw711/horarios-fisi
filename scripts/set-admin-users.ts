@@ -18,9 +18,13 @@ type ClerkUser = {
 const args = process.argv.slice(2);
 const adminEmails =
   valuesAfter("--admin-email").map((email) => email.toLowerCase()) ?? [];
-const selectedAdminEmails = adminEmails.length
-  ? adminEmails
-  : ["raillyhugo@gmail.com", "hpaucar@unmsm.edu.pe"];
+if (!adminEmails.length) {
+  process.stderr.write(
+    "Usage: bun run clerk:set-admins -- --admin-email <email> [--admin-email <email>...]\n",
+  );
+  process.exit(1);
+}
+const selectedAdminEmails = adminEmails;
 const resetNonAdmins = !args.includes("--preserve-non-admin-roles");
 const defaultSchool = normalizeDepartment(valueAfter("--school"));
 
