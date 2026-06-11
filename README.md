@@ -35,6 +35,20 @@ bun run check
 bun run smoke https://horarios-unmsm.vercel.app
 ```
 
+### Tests de base de datos
+
+Las pruebas de caracterización en `src/lib/data/schedule-db.test.ts` requieren una base de datos Neon dedicada. Nunca uses la URL de producción.
+
+Para crear un branch de Neon exclusivo para tests: `neonctl branches create --name tests --parent main --project-id <tu-proyecto>`.
+
+Luego ejecuta la suite completa con:
+
+```bash
+TEST_DATABASE_URL=postgres://... bun run test
+```
+
+Sin `TEST_DATABASE_URL`, los 18 tests de BD se omiten automáticamente (`describe.skip`) y el resto de la suite sigue verde.
+
 `bun run check` ejecuta Biome, tests de reglas horarias y build de producción. El smoke test valida rutas protegidas y estado de autenticación del despliegue.
 
 Para una verificación operacional contra producción:

@@ -8,25 +8,19 @@
 // module does not call getSql() at load time.
 
 import { afterAll, beforeAll, beforeEach, expect, it } from "bun:test";
+import type { NeonQueryFunction } from "@neondatabase/serverless";
 import { neon } from "@neondatabase/serverless";
 import {
-  contractRules,
-  courseCatalog,
-  seedSlots,
-} from "@/lib/domain/schedule-data";
-import type { AppRole } from "@/lib/domain/types";
-import {
+  addCourse,
   approveSchedule,
   deleteClerkUser,
   ensureScheduleSchema,
+  getSchedulePayload,
   setAvailability,
   setContract,
-  setPeriodClosed,
   submitSchedule,
   syncClerkUser,
   verifyScheduleSchema,
-  addCourse,
-  getSchedulePayload,
 } from "@/lib/data/schedule-db";
 import {
   describeDb,
@@ -34,7 +28,8 @@ import {
   resetDb,
   setupTestDb,
 } from "@/lib/data/test-helpers";
-import type { NeonQueryFunction } from "@neondatabase/serverless";
+import { contractRules, seedSlots } from "@/lib/domain/schedule-data";
+import type { AppRole } from "@/lib/domain/types";
 
 // ---------------------------------------------------------------------------
 // Shared test SQL client — initialized in beforeAll after setupTestDb() sets
@@ -119,9 +114,10 @@ function partial10Slots() {
 
 // ---------------------------------------------------------------------------
 // Helper: build availability for a full-time teacher (5 days × 8 hours in two
-// 4-hour blocks = 40 hours, satisfies full contract rules).
+// 4-hour blocks = 40 hours, satisfies full contract rules). Unused in the
+// current characterization suite but kept for future full-contract tests.
 // ---------------------------------------------------------------------------
-function fullTimeSlots() {
+function _fullTimeSlots() {
   return seedSlots({
     lunes: [8, 9, 10, 11, 14, 15, 16, 17],
     martes: [8, 9, 10, 11, 14, 15, 16, 17],
@@ -138,7 +134,9 @@ function fullTimeSlots() {
 describeDb("schedule-db (DB-backed characterization)", () => {
   beforeAll(async () => {
     setupTestDb();
-    sql = neon(process.env.DATABASE_URL!);
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) throw new Error("DATABASE_URL not set after setupTestDb");
+    sql = neon(dbUrl);
     // Idempotency check: run ensureScheduleSchema twice — must not throw on
     // second call (CHARACTERIZATION: create-if-not-exists is idempotent).
     await ensureScheduleSchema();
