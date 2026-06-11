@@ -5,7 +5,7 @@ import { getSchedulePayload } from "@/lib/data/schedule-db";
 
 export default async function DemoPage() {
   if (process.env.NODE_ENV === "production") {
-    redirect("/docente");
+    redirect("/teacher");
   }
   const identity = await resolveScheduleIdentity({ preview: true });
   if (!identity) {

@@ -225,10 +225,10 @@ async function verifyPublicRoutes(base: string): Promise<Check[]> {
     { path: "/api/health", status: 200, okBody: true },
     { path: "/sign-in", status: 200 },
     { path: "/api/schedule", status: 401 },
-    { path: "/direccion", status: 307, location: "/sign-in" },
-    { path: "/direccion/usuarios", status: 307, location: "/sign-in" },
-    { path: "/direccion/auditoria", status: 307, location: "/sign-in" },
-    { path: "/direccion/configuracion", status: 307, location: "/sign-in" },
+    { path: "/direction", status: 307, location: "/sign-in" },
+    { path: "/direction/users", status: 307, location: "/sign-in" },
+    { path: "/direction/audit", status: 307, location: "/sign-in" },
+    { path: "/direction/settings", status: 307, location: "/sign-in" },
   ];
   const checks: Check[] = [];
   for (const route of routes) {

@@ -22,22 +22,22 @@ const checks = [
     expectedStatus: 401,
   },
   {
-    path: "/direccion",
+    path: "/direction",
     expectedStatus: 307,
     expectedLocation: "/sign-in",
   },
   {
-    path: "/direccion/usuarios",
+    path: "/direction/users",
     expectedStatus: 307,
     expectedLocation: "/sign-in",
   },
   {
-    path: "/direccion/auditoria",
+    path: "/direction/audit",
     expectedStatus: 307,
     expectedLocation: "/sign-in",
   },
   {
-    path: "/direccion/configuracion",
+    path: "/direction/settings",
     expectedStatus: 307,
     expectedLocation: "/sign-in",
   },

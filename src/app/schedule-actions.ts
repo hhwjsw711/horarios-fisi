@@ -79,10 +79,10 @@ async function runAuthenticatedAction(
 }
 
 function revalidateScheduleRoutes() {
-  revalidatePath("/docente");
-  revalidatePath("/direccion");
-  revalidatePath("/direccion/usuarios");
-  revalidatePath("/direccion/auditoria");
-  revalidatePath("/direccion/configuracion");
+  revalidatePath("/teacher");
+  revalidatePath("/direction");
+  revalidatePath("/direction/users");
+  revalidatePath("/direction/audit");
+  revalidatePath("/direction/settings");
   revalidatePath("/onboarding");
 }

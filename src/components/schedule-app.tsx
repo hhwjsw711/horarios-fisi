@@ -1102,7 +1102,7 @@ export function OnboardingRouteApp({
         toast.error(result.error);
         return;
       }
-      router.push(result.payload.canUseDirection ? "/direccion" : "/docente");
+      router.push(result.payload.canUseDirection ? "/direction" : "/teacher");
       return;
     }
     const response = await fetch(endpoint, {
@@ -1121,7 +1121,7 @@ export function OnboardingRouteApp({
       );
       return;
     }
-    router.push("/docente");
+    router.push("/teacher");
   };
 
   if (error) {
@@ -1295,7 +1295,7 @@ function AppSidebar({
               <SidebarMenuButton
                 className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                 isActive={selectedView === "docente"}
-                render={<Link href="/docente" />}
+                render={<Link href="/teacher" />}
                 tooltip="Docente"
               >
                 <CalendarClock />
@@ -1307,7 +1307,7 @@ function AppSidebar({
                 <SidebarMenuButton
                   className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                   isActive={selectedView === "direccion"}
-                  render={<Link href="/direccion" />}
+                  render={<Link href="/direction" />}
                   tooltip="Dirección"
                 >
                   <Users />
@@ -1322,7 +1322,7 @@ function AppSidebar({
                   <SidebarMenuButton
                     className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                     isActive={selectedView === "usuarios"}
-                    render={<Link href="/direccion/usuarios" />}
+                    render={<Link href="/direction/users" />}
                     tooltip="Usuarios"
                   >
                     <UserCog />
@@ -1333,7 +1333,7 @@ function AppSidebar({
                   <SidebarMenuButton
                     className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                     isActive={selectedView === "auditoria"}
-                    render={<Link href="/direccion/auditoria" />}
+                    render={<Link href="/direction/audit" />}
                     tooltip="Auditoría"
                   >
                     <History />
@@ -1344,7 +1344,7 @@ function AppSidebar({
                   <SidebarMenuButton
                     className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                     isActive={selectedView === "configuracion"}
-                    render={<Link href="/direccion/configuracion" />}
+                    render={<Link href="/direction/settings" />}
                     tooltip="Configuración"
                   >
                     <Settings2 />
@@ -3957,7 +3957,7 @@ function LockedDirectionView() {
           Esta ruta está disponible solo para cuentas con rol Admin.
         </AlertDescription>
         <AlertAction>
-          <Link className={buttonVariants({ size: "sm" })} href="/docente">
+          <Link className={buttonVariants({ size: "sm" })} href="/teacher">
             Volver a docente
           </Link>
         </AlertAction>

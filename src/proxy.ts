@@ -7,8 +7,8 @@ import {
 
 const isDemoRoute = createRouteMatcher(["/demo(.*)"]);
 const isDevelopmentBypassRoute = createRouteMatcher([
-  "/docente(.*)",
-  "/direccion(.*)",
+  "/teacher(.*)",
+  "/direction(.*)",
   "/onboarding(.*)",
   "/api/schedule(.*)",
 ]);

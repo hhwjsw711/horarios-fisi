@@ -9,8 +9,8 @@ export default async function Home() {
     redirect(
       user?.publicMetadata?.role === "admin" ||
         user?.publicMetadata?.role === "direccion"
-        ? "/direccion"
-        : "/docente",
+        ? "/direction"
+        : "/teacher",
     );
   }
   return <SignedOutShell />;

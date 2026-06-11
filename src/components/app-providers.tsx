@@ -32,8 +32,8 @@ export function AppProviders({
   if (
     pathname?.startsWith("/demo") ||
     (process.env.NODE_ENV !== "production" &&
-      (pathname?.startsWith("/docente") ||
-        pathname?.startsWith("/direccion") ||
+      (pathname?.startsWith("/teacher") ||
+        pathname?.startsWith("/direction") ||
         pathname?.startsWith("/onboarding")))
   ) {
     return content;

@@ -10,7 +10,7 @@ export default async function OnboardingPage() {
   }
   const payload = await getSchedulePayload(identity);
   if (payload.onboarding.complete) {
-    redirect(payload.canUseDirection ? "/direccion" : "/docente");
+    redirect(payload.canUseDirection ? "/direction" : "/teacher");
   }
   return <OnboardingRouteApp initialData={payload} />;
 }
