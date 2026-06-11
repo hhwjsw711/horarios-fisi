@@ -4,7 +4,8 @@ import type {
   ScheduleActionRunResult,
 } from "@/lib/schedule-action-types";
 import { type ContractKey, contractRules } from "@/lib/schedule-data";
-import type { AppRole, ScheduleIdentity } from "@/lib/schedule-db";
+import { ScheduleError } from "@/lib/domain/types";
+import type { AppRole, ScheduleIdentity } from "@/lib/domain/types";
 import {
   addCourse,
   approveSchedule,
@@ -14,7 +15,6 @@ import {
   importTeacherCourses,
   observeSchedule,
   removeCourse,
-  ScheduleError,
   setAcademicTerm,
   setAvailability,
   setContract,

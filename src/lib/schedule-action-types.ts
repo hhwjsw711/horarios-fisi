@@ -3,7 +3,7 @@ import type {
   AppRole,
   SchedulePayload,
   TeacherCourseImportResponse,
-} from "@/lib/schedule-db";
+} from "@/lib/domain/types";
 
 export type CompleteOnboardingAction = {
   action: "completeOnboarding";

@@ -149,7 +149,7 @@ import type {
   SchedulePayload,
   ScheduleUser,
   TeacherCourseImportResponse,
-} from "@/lib/schedule-db";
+} from "@/lib/domain/types";
 import {
   completionForRules,
   courseAssignmentState,

@@ -25,18 +25,6 @@ import {
   type TeacherCourseImportResult,
   type TeacherCourseImportTeacher,
 } from "@/lib/teacher-course-import";
-export type {
-  AppRole,
-  ClerkUserSyncInput,
-  Onboarding,
-  ScheduleEvent,
-  ScheduleIdentity,
-  SchedulePayload,
-  ScheduleSettings,
-  ScheduleUser,
-  TeacherCourseImportResponse,
-} from "@/lib/domain/types";
-export { ScheduleError } from "@/lib/domain/types";
 import { ScheduleError } from "@/lib/domain/types";
 import type {
   AppRole,
