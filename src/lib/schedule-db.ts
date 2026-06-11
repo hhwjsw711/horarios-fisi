@@ -1445,19 +1445,21 @@ export async function submitSchedule(identity: ScheduleIdentity) {
   }
   await sql.query(
     `
-      update teacher_profiles
-      set status = 'enviado', review_note = '', submitted_at = $2, approved_at = null, updated_at = now()
-      where id = $1
+      with updated as (
+        update teacher_profiles
+        set status = 'enviado', review_note = '', submitted_at = $2, approved_at = null, updated_at = now()
+        where id = $1
+        returning id
+      )
+      insert into schedule_events (teacher_id, actor_user_id, event_type, metadata)
+      select id, $3, 'teacher.submitted_schedule', $4::jsonb from updated
     `,
-    [workspace.profile.id, submittedAt],
-  );
-  await recordEvent(
-    identity,
-    workspace.profile.id,
-    "teacher.submitted_schedule",
-    {
+    [
+      workspace.profile.id,
       submittedAt,
-    },
+      identity.clerkUserId,
+      JSON.stringify({ submittedAt }),
+    ],
   );
   return getSchedulePayload(identity);
 }
