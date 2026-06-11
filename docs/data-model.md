@@ -1,8 +1,8 @@
-# Modelo de datos
+# Data Model
 
-Fuente de verdad: `src/lib/schedule-db.ts`, función `ensureScheduleSchema()`.
+Source of truth: `src/lib/schedule-db.ts`, function `ensureScheduleSchema()`.
 
-## Diagrama entidad-relación
+## Entity-relationship diagram
 
 ```mermaid
 erDiagram
@@ -101,158 +101,158 @@ erDiagram
         int position
     }
 
-    app_users ||--o| teacher_profiles : "tiene perfil"
-    app_users ||--o| teacher_sandboxes : "tiene sandbox"
-    teacher_profiles ||--o{ teacher_availability : "disponibilidad"
-    teacher_profiles ||--o{ teacher_courses : "cursos asignados"
-    teacher_courses }o--|| courses : "referencia curso"
-    teacher_sandboxes ||--o{ teacher_sandbox_availability : "disponibilidad sandbox"
-    teacher_sandboxes ||--o{ teacher_sandbox_courses : "cursos sandbox"
-    teacher_sandbox_courses }o--|| courses : "referencia curso"
+    app_users ||--o| teacher_profiles : "has profile"
+    app_users ||--o| teacher_sandboxes : "has sandbox"
+    teacher_profiles ||--o{ teacher_availability : "availability"
+    teacher_profiles ||--o{ teacher_courses : "assigned courses"
+    teacher_courses }o--|| courses : "references course"
+    teacher_sandboxes ||--o{ teacher_sandbox_availability : "sandbox availability"
+    teacher_sandboxes ||--o{ teacher_sandbox_courses : "sandbox courses"
+    teacher_sandbox_courses }o--|| courses : "references course"
 ```
 
-## Diccionario de tablas
+## Table dictionary
 
 ### app_users
 
-Usuarios sincronizados desde Clerk vía webhook. Cada fila corresponde a un usuario autenticado.
+Users synced from Clerk via webhook. Each row corresponds to one authenticated user.
 
-| Columna | Tipo | Restricciones | Descripción |
+| Column | Type | Constraints | Description |
 |---|---|---|---|
-| clerk_user_id | text | PK | Identificador de Clerk, formato `user_xxx` |
-| email | text | NOT NULL | Correo principal en minúsculas |
-| name | text | NOT NULL | Nombre de visualización |
-| image_url | text | NOT NULL, default '' | URL de avatar de Clerk |
-| role | text | NOT NULL, default 'docente', CHECK | Rol efectivo: `docente`, `direccion` o `admin` |
-| school | text | NOT NULL, default 'Sin departamento' | Escuela o departamento del usuario |
-| code | text | NOT NULL, default '' | Código docente institucional (opcional) |
-| last_seen_at | timestamptz | nullable | Última actividad registrada |
-| created_at | timestamptz | NOT NULL, default now() | Fecha de creación |
-| updated_at | timestamptz | NOT NULL, default now() | Fecha de última actualización |
+| clerk_user_id | text | PK | Clerk identifier, format `user_xxx` |
+| email | text | NOT NULL | Primary email in lowercase |
+| name | text | NOT NULL | Display name |
+| image_url | text | NOT NULL, default '' | Clerk avatar URL |
+| role | text | NOT NULL, default 'docente', CHECK | Effective role: `docente`, `direccion`, or `admin` |
+| school | text | NOT NULL, default 'Sin departamento' | User's school or department |
+| code | text | NOT NULL, default '' | Institutional teacher code (optional) |
+| last_seen_at | timestamptz | nullable | Last recorded activity |
+| created_at | timestamptz | NOT NULL, default now() | Creation date |
+| updated_at | timestamptz | NOT NULL, default now() | Last update date |
 
 ### teacher_profiles
 
-Perfil de disponibilidad de cada docente. Un docente puede tener a lo sumo un perfil. El estado sigue el flujo descrito en la sección Invariantes.
+Availability profile for each teacher. A teacher can have at most one profile. The status follows the lifecycle described in the Invariants section.
 
-| Columna | Tipo | Restricciones | Descripción |
+| Column | Type | Constraints | Description |
 |---|---|---|---|
-| id | text | PK | Identificador interno del perfil |
-| clerk_user_id | text | UNIQUE, FK -> app_users, ON DELETE SET NULL | Vínculo con el usuario Clerk |
-| name | text | NOT NULL | Nombre del docente |
-| email | text | NOT NULL | Correo del docente |
-| contract | text | NOT NULL, CHECK | Tipo de contrato: `full`, `partial20`, `partial10` |
-| status | text | NOT NULL, default 'borrador', CHECK | Estado del perfil (ver Invariantes) |
-| review_note | text | NOT NULL, default '' | Observación administrativa cuando status='observado' |
-| submitted_at | text | nullable | Fecha ISO 8601 de envío |
-| approved_at | text | nullable | Fecha ISO 8601 de aprobación |
-| teacher_code | text | nullable | Código institucional del docente |
-| category | text | nullable | Categoría docente |
-| academic_degree | text | nullable | Grado académico |
-| department | text | nullable | Departamento académico |
-| created_at | timestamptz | NOT NULL, default now() | Fecha de creación |
-| updated_at | timestamptz | NOT NULL, default now() | Fecha de última actualización |
+| id | text | PK | Internal profile identifier |
+| clerk_user_id | text | UNIQUE, FK -> app_users, ON DELETE SET NULL | Link to the Clerk user |
+| name | text | NOT NULL | Teacher name |
+| email | text | NOT NULL | Teacher email |
+| contract | text | NOT NULL, CHECK | Contract type: `full`, `partial20`, `partial10` |
+| status | text | NOT NULL, default 'borrador', CHECK | Profile status (see Invariants) |
+| review_note | text | NOT NULL, default '' | Administrative observation when status='observado' |
+| submitted_at | text | nullable | ISO 8601 submission date |
+| approved_at | text | nullable | ISO 8601 approval date |
+| teacher_code | text | nullable | Institutional teacher code |
+| category | text | nullable | Teacher category |
+| academic_degree | text | nullable | Academic degree |
+| department | text | nullable | Academic department |
+| created_at | timestamptz | NOT NULL, default now() | Creation date |
+| updated_at | timestamptz | NOT NULL, default now() | Last update date |
 
 ### courses
 
-Catálogo de cursos que puede dictar un docente. Administrado por el rol `admin`.
+Course catalog that a teacher can teach. Managed by the `admin` role.
 
-| Columna | Tipo | Restricciones | Descripción |
+| Column | Type | Constraints | Description |
 |---|---|---|---|
-| id | text | PK | Identificador del curso |
-| name | text | NOT NULL | Nombre del curso |
-| school | text | NOT NULL | Escuela a la que pertenece |
-| active | boolean | NOT NULL, default true | Si el curso aparece en el catálogo activo |
-| is_thesis | boolean | NOT NULL, default false | Marca cursos de tesis (no cuentan para el límite de cursos) |
-| code | text | nullable | Código de plan de estudios |
-| cycle | int | nullable | Ciclo académico |
-| credits | int | nullable | Créditos del curso |
-| course_type | text | nullable | Tipo de curso |
-| curriculum | text | nullable | Plan de estudios al que pertenece |
+| id | text | PK | Course identifier |
+| name | text | NOT NULL | Course name |
+| school | text | NOT NULL | School the course belongs to |
+| active | boolean | NOT NULL, default true | Whether the course appears in the active catalog |
+| is_thesis | boolean | NOT NULL, default false | Marks thesis courses (do not count toward the course limit) |
+| code | text | nullable | Study plan code |
+| cycle | int | nullable | Academic cycle |
+| credits | int | nullable | Course credits |
+| course_type | text | nullable | Course type |
+| curriculum | text | nullable | Study plan the course belongs to |
 
 ### teacher_availability
 
-Franjas horarias registradas por un docente. Cada fila representa una hora disponible en un día.
+Time slots registered by a teacher. Each row represents one available hour on a given day.
 
-| Columna | Tipo | Restricciones | Descripción |
+| Column | Type | Constraints | Description |
 |---|---|---|---|
-| teacher_id | text | PK (compuesto), FK -> teacher_profiles, ON DELETE CASCADE | Perfil docente |
-| day_key | text | PK (compuesto) | Día de la semana: `lunes`, `martes`, `miercoles`, `jueves`, `viernes`, `sabado` |
-| hour | int | PK (compuesto) | Hora en formato 8-21 |
+| teacher_id | text | PK (composite), FK -> teacher_profiles, ON DELETE CASCADE | Teacher profile |
+| day_key | text | PK (composite) | Day of the week: `lunes`, `martes`, `miercoles`, `jueves`, `viernes`, `sabado` |
+| hour | int | PK (composite) | Hour in 8-21 format |
 
 ### teacher_courses
 
-Cursos asignados a un docente en un perfil. No se puede eliminar un curso si tiene asignaciones activas.
+Courses assigned to a teacher in a profile. A course cannot be removed if it has active assignments.
 
-| Columna | Tipo | Restricciones | Descripción |
+| Column | Type | Constraints | Description |
 |---|---|---|---|
-| teacher_id | text | PK (compuesto), FK -> teacher_profiles, ON DELETE CASCADE | Perfil docente |
-| course_id | text | PK (compuesto), FK -> courses, ON DELETE RESTRICT | Curso del catálogo |
-| position | int | NOT NULL, default 0 | Orden de visualización |
+| teacher_id | text | PK (composite), FK -> teacher_profiles, ON DELETE CASCADE | Teacher profile |
+| course_id | text | PK (composite), FK -> courses, ON DELETE RESTRICT | Catalog course |
+| position | int | NOT NULL, default 0 | Display order |
 
 ### app_settings
 
-Parámetros de configuración global del sistema en formato clave-valor.
+Global system configuration parameters in key-value format.
 
-| Columna | Tipo | Restricciones | Descripción |
+| Column | Type | Constraints | Description |
 |---|---|---|---|
-| key | text | PK | Nombre del parámetro (ej. `academic_term`, `period_closed`) |
-| value | text | NOT NULL | Valor serializado como texto |
-| updated_at | timestamptz | NOT NULL, default now() | Fecha de última actualización |
+| key | text | PK | Parameter name (e.g. `academic_term`, `period_closed`) |
+| value | text | NOT NULL | Value serialized as text |
+| updated_at | timestamptz | NOT NULL, default now() | Last update date |
 
 ### schedule_events
 
-Registro de auditoría de eventos relevantes (envíos, aprobaciones, observaciones, cierres de período).
+Audit log of relevant events (submissions, approvals, observations, period closures).
 
-| Columna | Tipo | Restricciones | Descripción |
+| Column | Type | Constraints | Description |
 |---|---|---|---|
-| id | bigint | PK, secuencia automática | Identificador secuencial |
-| teacher_id | text | NOT NULL | Perfil docente afectado (sin FK para preservar historial tras borrado) |
-| actor_user_id | text | NOT NULL | Usuario que realizó la acción |
-| event_type | text | NOT NULL | Tipo de evento (ej. `submit`, `approve`, `observe`) |
-| metadata | jsonb | NOT NULL, default '{}' | Datos adicionales del evento |
-| created_at | timestamptz | NOT NULL, default now() | Fecha del evento |
+| id | bigint | PK, auto sequence | Sequential identifier |
+| teacher_id | text | NOT NULL | Affected teacher profile (no FK to preserve history after deletion) |
+| actor_user_id | text | NOT NULL | User who performed the action |
+| event_type | text | NOT NULL | Event type (e.g. `submit`, `approve`, `observe`) |
+| metadata | jsonb | NOT NULL, default '{}' | Additional event data |
+| created_at | timestamptz | NOT NULL, default now() | Event date |
 
 ### teacher_sandboxes
 
-Perfil de prueba que permite a un usuario de `direccion` o `admin` simular el flujo de un docente sin crear un perfil real.
+Test profile that allows a `direccion` or `admin` user to simulate the teacher flow without creating a real profile.
 
-| Columna | Tipo | Restricciones | Descripción |
+| Column | Type | Constraints | Description |
 |---|---|---|---|
-| id | text | PK | Identificador del sandbox |
-| owner_user_id | text | UNIQUE, FK -> app_users, ON DELETE CASCADE | Usuario propietario del sandbox |
-| name | text | NOT NULL | Nombre para el sandbox |
-| email | text | NOT NULL | Correo para el sandbox |
-| contract | text | NOT NULL, CHECK | Tipo de contrato simulado |
-| status | text | NOT NULL, default 'borrador', CHECK | Estado del sandbox (mismos valores que teacher_profiles) |
-| submitted_at | text | nullable | Fecha ISO 8601 de envío simulado |
-| created_at | timestamptz | NOT NULL, default now() | Fecha de creación |
-| updated_at | timestamptz | NOT NULL, default now() | Fecha de última actualización |
+| id | text | PK | Sandbox identifier |
+| owner_user_id | text | UNIQUE, FK -> app_users, ON DELETE CASCADE | Owning user |
+| name | text | NOT NULL | Name for the sandbox |
+| email | text | NOT NULL | Email for the sandbox |
+| contract | text | NOT NULL, CHECK | Simulated contract type |
+| status | text | NOT NULL, default 'borrador', CHECK | Sandbox status (same values as teacher_profiles) |
+| submitted_at | text | nullable | ISO 8601 simulated submission date |
+| created_at | timestamptz | NOT NULL, default now() | Creation date |
+| updated_at | timestamptz | NOT NULL, default now() | Last update date |
 
 ### teacher_sandbox_availability
 
-Franjas horarias del sandbox. Estructura idéntica a `teacher_availability`.
+Sandbox time slots. Identical structure to `teacher_availability`.
 
-| Columna | Tipo | Restricciones | Descripción |
+| Column | Type | Constraints | Description |
 |---|---|---|---|
-| sandbox_id | text | PK (compuesto), FK -> teacher_sandboxes, ON DELETE CASCADE | Sandbox padre |
-| day_key | text | PK (compuesto) | Día de la semana |
-| hour | int | PK (compuesto) | Hora en formato 8-21 |
+| sandbox_id | text | PK (composite), FK -> teacher_sandboxes, ON DELETE CASCADE | Parent sandbox |
+| day_key | text | PK (composite) | Day of the week |
+| hour | int | PK (composite) | Hour in 8-21 format |
 
 ### teacher_sandbox_courses
 
-Cursos del sandbox. Estructura idéntica a `teacher_courses`.
+Sandbox courses. Identical structure to `teacher_courses`.
 
-| Columna | Tipo | Restricciones | Descripción |
+| Column | Type | Constraints | Description |
 |---|---|---|---|
-| sandbox_id | text | PK (compuesto), FK -> teacher_sandboxes, ON DELETE CASCADE | Sandbox padre |
-| course_id | text | PK (compuesto), FK -> courses, ON DELETE RESTRICT | Curso del catálogo |
-| position | int | NOT NULL, default 0 | Orden de visualización |
+| sandbox_id | text | PK (composite), FK -> teacher_sandboxes, ON DELETE CASCADE | Parent sandbox |
+| course_id | text | PK (composite), FK -> courses, ON DELETE RESTRICT | Catalog course |
+| position | int | NOT NULL, default 0 | Display order |
 
-## Invariantes
+## Invariants
 
-### Flujo de estado de teacher_profiles
+### teacher_profiles status lifecycle
 
-El campo `status` sigue el siguiente ciclo de vida:
+The `status` field follows this lifecycle:
 
 ```
 borrador --> enviado --> aprobado
@@ -261,25 +261,25 @@ borrador --> enviado --> aprobado
     +------- observado
 ```
 
-- `borrador`: el docente aún no ha enviado su disponibilidad.
-- `enviado`: el docente envió y espera revisión administrativa.
-- `observado`: Dirección devolvió el perfil con una nota en `review_note`.
-- `aprobado`: Dirección aprobó el horario.
+- `borrador`: the teacher has not yet submitted their availability.
+- `enviado`: the teacher submitted and is awaiting administrative review.
+- `observado`: the Direction office returned the profile with a note in `review_note`.
+- `aprobado`: the Direction office approved the schedule.
 
-Cuando un perfil pasa a `observado`, `review_note` contiene la observación escrita por Dirección. Al reenviarlo, `review_note` se limpia.
+When a profile transitions to `observado`, `review_note` contains the observation written by the Direction office. When the teacher resubmits, `review_note` is cleared.
 
-### Reglas por tipo de contrato
+### Rules by contract type
 
-Definidas en `src/lib/schedule-rules.ts` y `src/lib/schedule-data.ts`.
+Defined in `src/lib/schedule-rules.ts` and `src/lib/schedule-data.ts`.
 
-| Tipo | Clave | Horas totales | Horas diarias | Bloques de 4h por dia | Dias con bloque | Max cursos (sin tesis) |
+| Type | Key | Total hours | Daily hours | 4h blocks per day | Days with block | Max courses (excl. thesis) |
 |---|---|---|---|---|---|---|
-| Tiempo completo | `full` | 40 | 8 | 2 | 5 | 3 |
-| Tiempo parcial 20 h | `partial20` | 20 | 4 | 1 | 5 | 2 |
-| Tiempo parcial 10 h | `partial10` | 12 | 4 | 1 | 3 | 1 |
+| Full-time | `full` | 40 | 8 | 2 | 5 | 3 |
+| Part-time 20 h | `partial20` | 20 | 4 | 1 | 5 | 2 |
+| Part-time 10 h | `partial10` | 12 | 4 | 1 | 3 | 1 |
 
-Los cursos marcados con `is_thesis = true` no cuentan para el límite de cursos por contrato.
+Courses marked with `is_thesis = true` do not count toward the per-contract course limit.
 
-### Compuerta de período abierto
+### Period-open gate
 
-Toda mutación de datos docentes llama internamente a `ensurePeriodOpen()`, que lee `app_settings.period_closed`. Si el valor es `'true'`, la operación falla con HTTP 403. El campo `period_closed_at` registra el instante de cierre. Dirección o Admin pueden reabrir el período desde la pantalla de configuración.
+Every teacher data mutation internally calls `ensurePeriodOpen()`, which reads `app_settings.period_closed`. If the value is `'true'`, the operation fails with HTTP 403. The `period_closed_at` field records the closure timestamp. The Direction or Admin roles can reopen the period from the settings screen.

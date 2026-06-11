@@ -1,16 +1,16 @@
-# ADR 0002: Postgres con SQL parametrizado directo
+# ADR 0002: Postgres with raw parameterized SQL
 
-## Contexto
+## Context
 
-La aplicación necesita persistencia relacional. Las opciones evaluadas fueron un ORM (Drizzle, Prisma) y SQL directo sobre `@neondatabase/serverless`.
+The application requires relational persistence. The options evaluated were an ORM (Drizzle, Prisma) and raw SQL over `@neondatabase/serverless`.
 
-## Decisión
+## Decision
 
-Se usa Neon Postgres con `@neondatabase/serverless` y SQL parametrizado directamente en `src/lib/schedule-db.ts`. No hay ORM.
+Neon Postgres is used with `@neondatabase/serverless` and parameterized SQL directly in `src/lib/schedule-db.ts`. There is no ORM.
 
-## Consecuencias
+## Consequences
 
-- El SQL es visible y auditado: cada consulta puede leerse sin traducir una DSL de ORM. Esto es relevante en un contexto académico donde la transparencia del código tiene valor didáctico.
-- El esquema vive en `ensureScheduleSchema()` como sentencias `CREATE TABLE IF NOT EXISTS`. Es ejecutable en cada arranque de la aplicación, lo que simplifica el despliegue inicial.
-- Compensación conocida: las migraciones de esquema se gestionan con sentencias `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` dentro de la misma función. No existe un sistema formal de migraciones versionadas. Esta es una mejora pendiente sin fecha comprometida.
-- El acceso a datos está encapsulado en `schedule-db.ts`; si en el futuro se decide adoptar un ORM, el cambio queda contenido en ese módulo.
+- SQL is visible and auditable: every query can be read without translating an ORM DSL. This is relevant in an academic context where code transparency has didactic value.
+- The schema lives in `ensureScheduleSchema()` as `CREATE TABLE IF NOT EXISTS` statements. It is executable on each application start, which simplifies the initial deployment.
+- Known trade-off: schema migrations are managed with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements inside the same function. There is no formal versioned migration system. This is a pending improvement with no committed timeline.
+- Data access is encapsulated in `schedule-db.ts`; if an ORM is adopted in the future, the change is contained within that module.

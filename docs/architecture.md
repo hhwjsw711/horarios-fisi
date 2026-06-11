@@ -1,45 +1,45 @@
-# Arquitectura
+# Architecture
 
-## Visión
+## Overview
 
-Horarios UNMSM es un sistema de registro de disponibilidad docente para la Facultad de Ingeniería de Sistemas e Informática (FISI) de la UNMSM. Permite a cada docente declarar sus franjas horarias y los cursos que puede dictar, valida automáticamente las reglas por tipo de contrato y habilita a la Dirección para revisar, observar y aprobar cada perfil antes del cierre del período académico.
+Horarios UNMSM is a teacher availability registration system for the Faculty of Systems Engineering and Computer Science (FISI) at UNMSM. It lets each teacher declare their time slots and the courses they can teach, automatically validates rules by contract type, and enables the Direction office to review, flag, and approve each profile before the academic period closes.
 
-## Principios
+## Principles
 
-- **Extensibilidad sobre escalabilidad**: la carga esperada es la comunidad FISI, no decenas de miles de usuarios concurrentes. Las decisiones de diseño priorizan facilidad de modificación y legibilidad del código.
-- **Separación lógica de capas en un solo repositorio**: la interfaz de usuario, la lógica de dominio y el acceso a datos viven en el mismo repositorio pero en módulos claramente delimitados. El límite entre capas se mantiene por convención, no por infraestructura distribuida.
-- **Dominio testeable sin framework**: `src/lib/schedule-rules.ts` y `src/lib/schedule-data.ts` no dependen de Next.js, Clerk ni Neon. Sus funciones son puras y tienen cobertura de tests que corren sin levantar el servidor.
+- **Extensibility over scalability**: the expected load is the FISI community, not tens of thousands of concurrent users. Design decisions prioritize ease of modification and code readability.
+- **Logical layer separation in a single repository**: the UI, domain logic, and data access live in the same repository but in clearly bounded modules. The layer boundary is maintained by convention, not by distributed infrastructure.
+- **Testable domain without a framework**: `src/lib/schedule-rules.ts` and `src/lib/schedule-data.ts` have no dependency on Next.js, Clerk, or Neon. Their functions are pure and have test coverage that runs without starting the server.
 
-## Capas
+## Layers
 
 ```mermaid
 flowchart TB
-    subgraph Front["Presentación"]
-        A["src/app (rutas Next.js)"]
-        B["src/components/schedule-app.tsx\n(componente cliente único)"]
+    subgraph Front["Presentation"]
+        A["src/app (Next.js routes)"]
+        B["src/components/schedule-app.tsx\n(single client component)"]
     end
 
-    subgraph API["API / Mutaciones"]
+    subgraph API["API / Mutations"]
         C["src/app/schedule-actions.ts\n(Server Actions)"]
-        D["PATCH /api/schedule\n(API REST de la app (GET payload, PATCH mutaciones))"]
-        E["src/lib/schedule-action-runner.ts\n(dispatcher de mutaciones)"]
+        D["PATCH /api/schedule\n(REST API (GET payload, PATCH mutations))"]
+        E["src/lib/schedule-action-runner.ts\n(mutation dispatcher)"]
     end
 
-    subgraph Domain["Dominio"]
-        F["schedule-rules.ts\n(validación de reglas por contrato)"]
-        G["schedule-data.ts\n(constantes y tipos)"]
-        H["schedule-identity.ts\n(resolución de rol desde Clerk)"]
+    subgraph Domain["Domain"]
+        F["schedule-rules.ts\n(contract rule validation)"]
+        G["schedule-data.ts\n(constants and types)"]
+        H["schedule-identity.ts\n(role resolution from Clerk)"]
     end
 
-    subgraph Data["Datos"]
-        I["schedule-db.ts\n(SQL parametrizado + ensureScheduleSchema)"]
+    subgraph Data["Data"]
+        I["schedule-db.ts\n(parameterized SQL + ensureScheduleSchema)"]
         J[("Neon Postgres")]
     end
 
-    subgraph Auth["Autenticación"]
+    subgraph Auth["Authentication"]
         K["Clerk"]
-        L["src/proxy.ts\n(middleware Next.js 16)"]
-        M["POST /api/webhooks/clerk\n(sincroniza app_users)"]
+        L["src/proxy.ts\n(Next.js 16 middleware)"]
+        M["POST /api/webhooks/clerk\n(syncs app_users)"]
     end
 
     A --> B
@@ -57,43 +57,43 @@ flowchart TB
     L --> A
 ```
 
-## Flujo de autenticación y roles
+## Authentication and role flow
 
-Clerk actúa como proveedor de identidad. El rol efectivo de cada usuario vive en `public_metadata.role` dentro de Clerk y se refleja en la columna `role` de `app_users`.
+Clerk acts as the identity provider. Each user's effective role lives in `public_metadata.role` inside Clerk and is mirrored in the `role` column of `app_users`.
 
-Los tres roles y sus permisos:
+The three roles and their permissions:
 
-| Rol | Puede hacer |
+| Role | Can do |
 |---|---|
-| `docente` | Registrar su propia disponibilidad y cursos, enviar su perfil para revisión |
-| `direccion` | Ver todos los perfiles docentes, aprobarlos, observarlos y cerrar/reabrir el período |
-| `admin` | Todo lo de `direccion` más gestión de usuarios, escuelas, catálogo de cursos y auditoría |
+| `docente` | Register their own availability and courses, submit their profile for review |
+| `direccion` | View all teacher profiles, approve them, flag them, and close/reopen the period |
+| `admin` | Everything `direccion` can do, plus user management, schools, course catalog, and audit |
 
-El webhook `POST /api/webhooks/clerk` (verificado con svix) recibe los eventos `user.created` y `user.updated`. Por cada evento, sincroniza el usuario en `app_users` leyendo `public_metadata.role`. Si el campo no existe o tiene un valor inválido, el rol queda como `docente` por defecto.
+The webhook `POST /api/webhooks/clerk` (verified with svix) receives `user.created` and `user.updated` events. For each event it syncs the user into `app_users` by reading `public_metadata.role`. If the field is absent or has an invalid value, the role defaults to `docente`.
 
-Para promover usuarios a `admin` desde la línea de comandos:
+To promote users to `admin` from the command line:
 
 ```bash
 bun run clerk:set-admins -- --admin-email correo@unmsm.edu.pe
 ```
 
-El script `scripts/set-admin-users.ts` actualiza el `public_metadata.role` en Clerk. El webhook propaga el cambio a `app_users` en el siguiente evento de Clerk, o bien el administrador puede forzar una sincronización manual.
+The script `scripts/set-admin-users.ts` updates `public_metadata.role` in Clerk. The webhook propagates the change to `app_users` on the next Clerk event, or the administrator can force a manual sync.
 
-## Decisiones de diseño
+## Design decisions
 
-Resumidas aquí; detalle en cada ADR:
+Summarized here; details in each ADR:
 
-- **Next.js full-stack** (`docs/adr/0001-nextjs-fullstack.md`): un repositorio, ciclo de retroalimentación corto, Server Components; se descartó un backend Spring Boot separado porque la necesidad era extensibilidad, no escala horizontal.
-- **Postgres con SQL directo** (`docs/adr/0002-postgres-raw-sql.md`): Neon Postgres con `@neondatabase/serverless` y SQL parametrizado; sin ORM para mantener el SQL transparente y didáctico.
-- **Roles en Clerk** (`docs/adr/0003-clerk-roles.md`): Clerk como proveedor de identidad, roles en `public_metadata.role` reflejados en `app_users` vía webhook.
+- **Next.js full-stack** (`docs/adr/0001-nextjs-fullstack.md`): one repository, short feedback loop, Server Components; a separate Spring Boot backend was ruled out because the need was extensibility, not horizontal scale.
+- **Postgres with raw SQL** (`docs/adr/0002-postgres-raw-sql.md`): Neon Postgres with `@neondatabase/serverless` and parameterized SQL; no ORM to keep SQL transparent and didactic.
+- **Roles in Clerk** (`docs/adr/0003-clerk-roles.md`): Clerk as identity provider, roles in `public_metadata.role` mirrored in `app_users` via webhook.
 
-## Operacion
+## Operations
 
 ```bash
 bun run check
 ```
 
-Ejecuta Biome (lint y formato), los tests de reglas horarias y el build de producción. Requiere variables de entorno; en CI se usan valores de marcador de posición:
+Runs Biome (lint and format), schedule-rule tests, and a production build. Requires environment variables; in CI placeholder values are used:
 
 ```bash
 export NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_ci
@@ -107,32 +107,41 @@ bun run check
 bun run smoke https://horarios-unmsm.vercel.app
 ```
 
-Valida rutas protegidas y estado de autenticación del despliegue.
+Validates protected routes and authentication state of the deployment.
 
 ```bash
 bun run ops:verify
 ```
 
-Verificación operacional contra producción: revisa rutas públicas, variables de entorno críticas, esquema, conteos de Neon e invariantes de disponibilidad y cupos. Ver README para el comando completo con sus parámetros.
+Operational verification against production: checks public routes, critical env vars, schema, Neon counts, and availability and slot invariants. See README for the full command with its parameters.
 
-El endpoint `/api/health` devuelve un JSON con el estado del sistema y no requiere autenticación.
+The `/api/health` endpoint returns a JSON status object and requires no authentication.
 
-## Convención de rutas
+## Naming conventions
 
-Las rutas públicas de la aplicación están en español (`/docente`, `/direccion`, `/onboarding`) porque el público es la comunidad FISI, hispanohablante. Todos los identificadores de código, nombres de archivos y carpetas están en inglés. Esta es una decisión deliberada, no una inconsistencia: el idioma de la URL refleja al usuario final; el idioma del código refleja al desarrollador.
+URL paths, route folders, file names, code identifiers, and documentation are in English. Persisted domain values are frozen in Spanish and must not be renamed:
 
-## Uso como plantilla
+- Role values stored in Clerk metadata and `app_users.role`: `docente`, `direccion`, `admin`
+- Profile status values in `teacher_profiles.status` and `teacher_sandboxes.status`: `borrador`, `enviado`, `observado`, `aprobado`
+- Schedule event types in `schedule_events.event_type`
+- End-user UI copy (toasts, labels, headings visible to FISI community members)
 
-Este repositorio está diseñado para ser replicable en futuros proyectos de facultad. Lo que se mantiene al clonar:
+Test: does the string appear in a URL or file system path? Rename it to English. Does it get stored in the database, compared against stored data, or shown to the end user? Keep it in Spanish.
 
-- La estructura de capas (presentación / API / dominio / datos).
-- La configuración de Biome, Bun y Tailwind CSS 4.
-- El cableado de autenticación con Clerk (middleware, webhook, roles en metadata).
-- El pipeline de CI (`bun run check`).
+Old URLs (`/docente`, `/direccion`, `/direccion/auditoria`, `/direccion/usuarios`, `/direccion/configuracion`) redirect permanently with HTTP 308 to their English equivalents (`/teacher`, `/direction`, `/direction/audit`, `/direction/users`, `/direction/settings`) via `next.config.ts`.
 
-Lo que se reemplaza según el dominio del nuevo proyecto:
+## Use as a template
 
-- Los módulos de dominio (`schedule-rules.ts`, `schedule-data.ts`).
-- El esquema de base de datos (`ensureScheduleSchema` en `schedule-db.ts`).
-- Las semillas de datos (`scripts/seed-courses.ts`).
-- Los componentes de interfaz (`src/components/schedule-app.tsx`).
+This repository is designed to be replicable in future faculty projects. What stays when you clone it:
+
+- The layer structure (presentation / API / domain / data).
+- The Biome, Bun, and Tailwind CSS 4 configuration.
+- The Clerk authentication wiring (middleware, webhook, roles in metadata).
+- The CI pipeline (`bun run check`).
+
+What you replace for the new project's domain:
+
+- The domain modules (`schedule-rules.ts`, `schedule-data.ts`).
+- The database schema (`ensureScheduleSchema` in `schedule-db.ts`).
+- The data seeds (`scripts/seed-courses.ts`).
+- The UI components (`src/components/schedule-app.tsx`).
