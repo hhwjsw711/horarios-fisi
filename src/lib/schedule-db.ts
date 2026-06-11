@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import {
   type ContractKey,
   type Course,
+  contractRules,
   courseCatalog,
   type DayKey,
   days,
@@ -860,18 +861,20 @@ async function addCourseToTeacher(
   if (assignment.limitReached) {
     throw new ScheduleError("Ya alcanzaste el máximo de cursos permitido.");
   }
-  await sql.query(
+  const maxCourses = contractRules[profile.contract].maxCourses;
+  const inserted = (await sql.query(
     `
       insert into teacher_courses (teacher_id, course_id, position)
-      values (
-        $1,
-        $2,
-        coalesce((select max(position) + 1 from teacher_courses where teacher_id = $1), 1)
-      )
+      select $1, $2, coalesce((select max(position) + 1 from teacher_courses where teacher_id = $1), 1)
+      where (select count(*) from teacher_courses where teacher_id = $1) < $3
       on conflict (teacher_id, course_id) do nothing
+      returning course_id
     `,
-    [teacherId, courseId],
-  );
+    [teacherId, courseId, maxCourses],
+  )) as { course_id: string }[];
+  if (inserted.length === 0 && !assignment.alreadyAssigned) {
+    throw new ScheduleError("Ya alcanzaste el máximo de cursos permitido.");
+  }
   if (!assignment.alreadyAssigned) {
     await markTeacherDraft(teacherId);
     await recordEvent(identity, teacherId, eventType, {
@@ -1393,17 +1396,28 @@ export async function approveSchedule(
   }
   const approvedAt = formatTimestamp();
   const sql = getSql();
-  await sql.query(
+  const result = (await sql.query(
     `
-      update teacher_profiles
-      set status = 'aprobado', review_note = '', approved_at = $2, updated_at = now()
-      where id = $1
+      with updated as (
+        update teacher_profiles
+        set status = 'aprobado', review_note = '', approved_at = $2, updated_at = now()
+        where id = $1 and status = 'enviado'
+        returning id
+      )
+      insert into schedule_events (teacher_id, actor_user_id, event_type, metadata)
+      select id, $3, 'director.approved_schedule', $4::jsonb from updated
+      returning teacher_id
     `,
-    [teacherId, approvedAt],
-  );
-  await recordEvent(identity, teacherId, "director.approved_schedule", {
-    approvedAt,
-  });
+    [
+      teacherId,
+      approvedAt,
+      identity.clerkUserId,
+      JSON.stringify({ approvedAt }),
+    ],
+  )) as { teacher_id: string }[];
+  if (result.length === 0) {
+    throw new ScheduleError("Solo puedes aprobar horarios enviados.");
+  }
   return getSchedulePayload(identity);
 }
 
@@ -1434,19 +1448,21 @@ export async function submitSchedule(identity: ScheduleIdentity) {
   }
   await sql.query(
     `
-      update teacher_profiles
-      set status = 'enviado', review_note = '', submitted_at = $2, approved_at = null, updated_at = now()
-      where id = $1
+      with updated as (
+        update teacher_profiles
+        set status = 'enviado', review_note = '', submitted_at = $2, approved_at = null, updated_at = now()
+        where id = $1
+        returning id
+      )
+      insert into schedule_events (teacher_id, actor_user_id, event_type, metadata)
+      select id, $3, 'teacher.submitted_schedule', $4::jsonb from updated
     `,
-    [workspace.profile.id, submittedAt],
-  );
-  await recordEvent(
-    identity,
-    workspace.profile.id,
-    "teacher.submitted_schedule",
-    {
+    [
+      workspace.profile.id,
       submittedAt,
-    },
+      identity.clerkUserId,
+      JSON.stringify({ submittedAt }),
+    ],
   );
   return getSchedulePayload(identity);
 }
@@ -2384,19 +2400,17 @@ async function replaceSandboxAvailability(
 
 async function replaceCourses(teacherId: string, courseIds: string[]) {
   const sql = getSql();
-  await sql.query("delete from teacher_courses where teacher_id = $1", [
-    teacherId,
+  await sql.transaction((tx) => [
+    tx`delete from teacher_courses where teacher_id = ${teacherId}`,
+    ...courseIds.map(
+      (courseId, index) =>
+        tx`
+          insert into teacher_courses (teacher_id, course_id, position)
+          values (${teacherId}, ${courseId}, ${index + 1})
+          on conflict (teacher_id, course_id) do update set position = excluded.position
+        `,
+    ),
   ]);
-  for (const [index, courseId] of courseIds.entries()) {
-    await sql.query(
-      `
-        insert into teacher_courses (teacher_id, course_id, position)
-        values ($1, $2, $3)
-        on conflict (teacher_id, course_id) do update set position = excluded.position
-      `,
-      [teacherId, courseId, index + 1],
-    );
-  }
 }
 
 async function recordEvent(
