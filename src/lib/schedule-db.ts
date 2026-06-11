@@ -1393,17 +1393,28 @@ export async function approveSchedule(
   }
   const approvedAt = formatTimestamp();
   const sql = getSql();
-  await sql.query(
+  const result = (await sql.query(
     `
-      update teacher_profiles
-      set status = 'aprobado', review_note = '', approved_at = $2, updated_at = now()
-      where id = $1
+      with updated as (
+        update teacher_profiles
+        set status = 'aprobado', review_note = '', approved_at = $2, updated_at = now()
+        where id = $1 and status = 'enviado'
+        returning id
+      )
+      insert into schedule_events (teacher_id, actor_user_id, event_type, metadata)
+      select id, $3, 'director.approved_schedule', $4::jsonb from updated
+      returning teacher_id
     `,
-    [teacherId, approvedAt],
-  );
-  await recordEvent(identity, teacherId, "director.approved_schedule", {
-    approvedAt,
-  });
+    [
+      teacherId,
+      approvedAt,
+      identity.clerkUserId,
+      JSON.stringify({ approvedAt }),
+    ],
+  )) as { teacher_id: string }[];
+  if (result.length === 0) {
+    throw new ScheduleError("Solo puedes aprobar horarios enviados.");
+  }
   return getSchedulePayload(identity);
 }
 
