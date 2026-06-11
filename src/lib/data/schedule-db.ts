@@ -12,11 +12,11 @@ import {
   seedTeachers,
   slotKey,
   type TeacherProfile,
-} from "@/lib/schedule-data";
+} from "@/lib/domain/schedule-data";
 import {
   courseAssignmentState,
   validateTeacherRules,
-} from "@/lib/schedule-rules";
+} from "@/lib/domain/schedule-rules";
 import {
   buildTeacherCourseImport,
   parseTeacherCourseCsv,
@@ -24,7 +24,7 @@ import {
   type TeacherCourseImportRecord,
   type TeacherCourseImportResult,
   type TeacherCourseImportTeacher,
-} from "@/lib/teacher-course-import";
+} from "@/lib/domain/teacher-course-import";
 import { ScheduleError } from "@/lib/domain/types";
 import type {
   AppRole,

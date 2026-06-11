@@ -1,5 +1,5 @@
-import type { Course, TeacherProfile } from "@/lib/schedule-data";
-import type { TeacherCourseImportResult } from "@/lib/teacher-course-import";
+import type { Course, TeacherProfile } from "@/lib/domain/schedule-data";
+import type { TeacherCourseImportResult } from "@/lib/domain/teacher-course-import";
 
 export type AppRole = "docente" | "direccion" | "admin";
 

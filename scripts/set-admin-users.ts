@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
-import { normalizeDepartment } from "../src/lib/schedule-data";
-import { ensureScheduleSchema } from "../src/lib/schedule-db";
+import { normalizeDepartment } from "../src/lib/domain/schedule-data";
+import { ensureScheduleSchema } from "../src/lib/data/schedule-db";
 import type { AppRole } from "../src/lib/domain/types";
 
 type ClerkEmail = {

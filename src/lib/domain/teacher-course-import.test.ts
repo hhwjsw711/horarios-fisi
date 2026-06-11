@@ -4,7 +4,7 @@ import {
   parseTeacherCourseCsv,
   type TeacherCourseImportCourse,
   type TeacherCourseImportTeacher,
-} from "@/lib/teacher-course-import";
+} from "@/lib/domain/teacher-course-import";
 
 const teachers: TeacherCourseImportTeacher[] = [
   {

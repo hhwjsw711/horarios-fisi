@@ -1,4 +1,4 @@
-import type { ContractKey } from "@/lib/schedule-data";
+import type { ContractKey } from "@/lib/domain/schedule-data";
 import type {
   AppRole,
   SchedulePayload,

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { text } from "node:stream/consumers";
 import { neon } from "@neondatabase/serverless";
-import { normalizeDepartment } from "../src/lib/schedule-data";
+import { normalizeDepartment } from "../src/lib/domain/schedule-data";
 
 type ImportTeacher = {
   id: string;

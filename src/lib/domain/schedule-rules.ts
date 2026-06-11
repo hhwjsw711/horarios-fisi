@@ -4,7 +4,7 @@ import {
   type DayKey,
   days,
   type TeacherProfile,
-} from "@/lib/schedule-data";
+} from "@/lib/domain/schedule-data";
 
 export type ScheduleValidation = {
   selectedHours: number;

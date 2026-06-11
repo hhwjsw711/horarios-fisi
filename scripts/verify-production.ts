@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { neon } from "@neondatabase/serverless";
-import { verifyScheduleSchema } from "../src/lib/schedule-db";
+import { verifyScheduleSchema } from "../src/lib/data/schedule-db";
 
 type Check = {
   name: string;

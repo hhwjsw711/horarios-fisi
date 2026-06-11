@@ -1,6 +1,6 @@
 import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import type { NextRequest } from "next/server";
-import { deleteClerkUser, syncClerkUser } from "@/lib/schedule-db";
+import { deleteClerkUser, syncClerkUser } from "@/lib/data/schedule-db";
 import type { AppRole } from "@/lib/domain/types";
 
 type ClerkEmail = {

@@ -126,8 +126,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { ScheduleMutationAction } from "@/lib/schedule-action-types";
-import { visibleCoursesForSchool } from "@/lib/schedule-courses";
+import type { ScheduleMutationAction } from "@/lib/api/schedule-action-types";
+import { visibleCoursesForSchool } from "@/lib/domain/schedule-courses";
 import {
   type ContractKey,
   type Course,
@@ -141,7 +141,7 @@ import {
   schools,
   slotKey,
   type TeacherProfile,
-} from "@/lib/schedule-data";
+} from "@/lib/domain/schedule-data";
 import type {
   AppRole,
   Onboarding,
@@ -155,7 +155,7 @@ import {
   courseAssignmentState,
   type ScheduleValidation,
   validateTeacherRules,
-} from "@/lib/schedule-rules";
+} from "@/lib/domain/schedule-rules";
 import { cn } from "@/lib/utils";
 
 export type ViewKey =
