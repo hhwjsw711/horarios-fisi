@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import {
   type ContractKey,
   type Course,
+  contractRules,
   courseCatalog,
   type DayKey,
   days,
@@ -860,18 +861,20 @@ async function addCourseToTeacher(
   if (assignment.limitReached) {
     throw new ScheduleError("Ya alcanzaste el máximo de cursos permitido.");
   }
-  await sql.query(
+  const maxCourses = contractRules[profile.contract].maxCourses;
+  const inserted = (await sql.query(
     `
       insert into teacher_courses (teacher_id, course_id, position)
-      values (
-        $1,
-        $2,
-        coalesce((select max(position) + 1 from teacher_courses where teacher_id = $1), 1)
-      )
+      select $1, $2, coalesce((select max(position) + 1 from teacher_courses where teacher_id = $1), 1)
+      where (select count(*) from teacher_courses where teacher_id = $1) < $3
       on conflict (teacher_id, course_id) do nothing
+      returning course_id
     `,
-    [teacherId, courseId],
-  );
+    [teacherId, courseId, maxCourses],
+  )) as { course_id: string }[];
+  if (inserted.length === 0 && !assignment.alreadyAssigned) {
+    throw new ScheduleError("Ya alcanzaste el máximo de cursos permitido.");
+  }
   if (!assignment.alreadyAssigned) {
     await markTeacherDraft(teacherId);
     await recordEvent(identity, teacherId, eventType, {
