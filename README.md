@@ -13,6 +13,14 @@ App open source para registrar disponibilidad docente, validar reglas por clase 
 - Bun
 - Biome
 
+## Documentacion
+
+- [docs/architecture.md](docs/architecture.md) - Vision general, capas, flujo de autenticacion, convencion de rutas y uso como template.
+- [docs/data-model.md](docs/data-model.md) - Diagrama entidad-relacion, diccionario de tablas e invariantes de dominio.
+- [docs/adr/0001-nextjs-fullstack.md](docs/adr/0001-nextjs-fullstack.md) - Por que Next.js full-stack en lugar de un backend separado.
+- [docs/adr/0002-postgres-raw-sql.md](docs/adr/0002-postgres-raw-sql.md) - Por que SQL parametrizado directo en lugar de un ORM.
+- [docs/adr/0003-clerk-roles.md](docs/adr/0003-clerk-roles.md) - Por que Clerk como proveedor de identidad con roles en metadata.
+
 ## Desarrollo
 
 ```bash
