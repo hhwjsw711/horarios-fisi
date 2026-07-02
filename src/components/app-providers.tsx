@@ -9,10 +9,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 export function AppProviders({
   children,
-  clerkProxyUrl,
 }: {
   children: React.ReactNode;
-  clerkProxyUrl?: string;
 }) {
   const pathname = usePathname();
   const content = (
@@ -39,5 +37,5 @@ export function AppProviders({
     return content;
   }
 
-  return <ClerkProvider proxyUrl={clerkProxyUrl}>{content}</ClerkProvider>;
+  return <ClerkProvider>{content}</ClerkProvider>;
 }

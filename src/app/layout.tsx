@@ -13,9 +13,6 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const clerkProxyUrl =
-  process.env.NODE_ENV === "production" ? "/__clerk" : undefined;
-
 export const metadata: Metadata = {
   metadataBase: new URL("https://horarios-unmsm.vercel.app"),
   applicationName: "Horarios FISI",
@@ -70,7 +67,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col">
-        <AppProviders clerkProxyUrl={clerkProxyUrl}>{children}</AppProviders>
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );
