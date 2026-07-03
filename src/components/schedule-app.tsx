@@ -5139,7 +5139,7 @@ async function exportXlsx(
   XLSX.utils.book_append_sheet(
     workbook,
     worksheet,
-    t("print.sheetName").slice(0, 31),
+    t("sheetName").slice(0, 31),
   );
   XLSX.writeFile(workbook, `${printedScheduleFileName(profile)}.xlsx`, {
     cellStyles: true,
@@ -5257,7 +5257,7 @@ function drawPrintedSchedulePage(
     doc.text(visibleLines, textX, textY, { align });
   };
 
-  drawCell(margin, y, tableWidth, 19, t("print.universityHeader"), {
+  drawCell(margin, y, tableWidth, 19, t("universityHeader"), {
     align: "center",
     bold: true,
     fontSize: 7.6,
@@ -5265,7 +5265,7 @@ function drawPrintedSchedulePage(
   });
   y += 21;
 
-  drawCell(margin, y, tableWidth, 5.5, t("print.generalData"), {
+  drawCell(margin, y, tableWidth, 5.5, t("generalData"), {
     bold: true,
     fill: sectionFill,
     fontSize: 8,
@@ -5284,31 +5284,25 @@ function drawPrintedSchedulePage(
   );
   y += 10;
 
-  drawCell(margin, y, tableWidth, 5.5, t("print.availability"), {
+  drawCell(margin, y, tableWidth, 5.5, t("availability"), {
     bold: true,
     fill: sectionFill,
     fontSize: 8,
   });
   y += 5.5;
   const availabilityColumnWidth = tableWidth / 4;
-  [
-    t("print.term"),
-    "",
-    t("print.date"),
-    "",
-    t("print.category"),
-    "",
-    t("print.hours"),
-  ].forEach((label, index) => {
-    drawCell(
-      margin + availabilityColumnWidth * index,
-      y,
-      availabilityColumnWidth,
-      6,
-      label,
-      { align: "center", bold: true, fill: thinFill, fontSize: 8 },
-    );
-  });
+  [t("term"), "", t("date"), "", t("category"), "", t("hours")].forEach(
+    (label, index) => {
+      drawCell(
+        margin + availabilityColumnWidth * index,
+        y,
+        availabilityColumnWidth,
+        6,
+        label,
+        { align: "center", bold: true, fill: thinFill, fontSize: 8 },
+      );
+    },
+  );
   y += 6;
   [
     academicTerm,
@@ -5327,7 +5321,7 @@ function drawPrintedSchedulePage(
   });
   y += 11;
 
-  drawCell(margin, y, tableWidth, 6, t("print.availabilitySchedule"), {
+  drawCell(margin, y, tableWidth, 6, t("availabilitySchedule"), {
     align: "center",
     bold: true,
     fill: sectionFill,
@@ -5337,7 +5331,7 @@ function drawPrintedSchedulePage(
   const hourColumnWidth = 30;
   const dayColumnWidth = (tableWidth - hourColumnWidth) / days.length;
   const scheduleRowHeight = 8.3;
-  drawCell(margin, y, hourColumnWidth, 7, t("print.time"), {
+  drawCell(margin, y, hourColumnWidth, 7, t("time"), {
     align: "center",
     bold: true,
     fill: thinFill,
@@ -5373,7 +5367,7 @@ function drawPrintedSchedulePage(
   });
   y += 5;
 
-  drawCell(margin, y, tableWidth, 6, t("print.coursesToTeach"), {
+  drawCell(margin, y, tableWidth, 6, t("coursesToTeach"), {
     align: "center",
     bold: true,
     fill: sectionFill,
@@ -5382,23 +5376,16 @@ function drawPrintedSchedulePage(
   y += 6;
   const courseColumnWidth = tableWidth * 0.53;
   const schoolColumnWidth = tableWidth - courseColumnWidth;
-  drawCell(margin, y, courseColumnWidth, 6, t("print.course"), {
+  drawCell(margin, y, courseColumnWidth, 6, t("course"), {
     bold: true,
     fill: thinFill,
     fontSize: 8,
   });
-  drawCell(
-    margin + courseColumnWidth,
-    y,
-    schoolColumnWidth,
-    6,
-    t("print.school"),
-    {
-      bold: true,
-      fill: thinFill,
-      fontSize: 8,
-    },
-  );
+  drawCell(margin + courseColumnWidth, y, schoolColumnWidth, 6, t("school"), {
+    bold: true,
+    fill: thinFill,
+    fontSize: 8,
+  });
   y += 6;
   const courseRows = Math.max(4, profile.courses.length);
   const availableCourseHeight = pageHeight - y - 11;
@@ -5480,37 +5467,29 @@ function buildPrintedScheduleSheetRows(
     });
   };
 
-  const titleRow = addRow([t("print.universityHeader")], 54);
+  const titleRow = addRow([t("universityHeader")], 54);
   merge(titleRow, 0, titleRow, 6);
 
-  const generalHeader = addRow([t("print.generalData")], 18);
+  const generalHeader = addRow([t("generalData")], 18);
   merge(generalHeader, 0, generalHeader, 6);
   const generalRow = addRow(
     [
-      `${t("print.names")}: ${profile.name}`,
+      `${t("names")}: ${profile.name}`,
       "",
       "",
       "",
       "",
-      `${t("print.code")}: ${profile.teacherCode ?? "-"}`,
+      `${t("code")}: ${profile.teacherCode ?? "-"}`,
     ],
     20,
   );
   merge(generalRow, 0, generalRow, 4);
   merge(generalRow, 5, generalRow, 6);
 
-  const availabilityHeader = addRow([t("print.availability")], 18);
+  const availabilityHeader = addRow([t("availability")], 18);
   merge(availabilityHeader, 0, availabilityHeader, 6);
   const availabilityLabels = addRow(
-    [
-      t("print.term"),
-      "",
-      t("print.date"),
-      "",
-      t("print.category"),
-      "",
-      t("print.hours"),
-    ],
+    [t("term"), "", t("date"), "", t("category"), "", t("hours")],
     20,
   );
   merge(availabilityLabels, 0, availabilityLabels, 1);
@@ -5532,13 +5511,10 @@ function buildPrintedScheduleSheetRows(
   merge(availabilityValues, 2, availabilityValues, 3);
   merge(availabilityValues, 4, availabilityValues, 5);
 
-  const scheduleHeader = addRow([t("print.availabilitySchedule")], 18);
+  const scheduleHeader = addRow([t("availabilitySchedule")], 18);
   merge(scheduleHeader, 0, scheduleHeader, 6);
   addRow(
-    [
-      t("print.time"),
-      ...days.map((day) => localizedDayLabel(day.label, tDays)),
-    ],
+    [t("time"), ...days.map((day) => localizedDayLabel(day.label, tDays))],
     20,
   );
   hours.forEach((hour) => {
@@ -5551,12 +5527,9 @@ function buildPrintedScheduleSheetRows(
     );
   });
 
-  const coursesHeader = addRow([t("print.coursesToTeach")], 18);
+  const coursesHeader = addRow([t("coursesToTeach")], 18);
   merge(coursesHeader, 0, coursesHeader, 6);
-  const courseLabels = addRow(
-    [t("print.course"), "", "", "", t("print.school")],
-    20,
-  );
+  const courseLabels = addRow([t("course"), "", "", "", t("school")], 20);
   merge(courseLabels, 0, courseLabels, 3);
   merge(courseLabels, 4, courseLabels, 6);
   Array.from({ length: Math.max(4, profile.courses.length) }).forEach(
@@ -5579,11 +5552,11 @@ function buildPrintedScheduleSheetRows(
 
   const summaryRow = addRow(
     [
-      `${t("print.markedHours")}: ${validation.selectedHours} / ${contractRules[profile.contract].requiredHours}`,
+      `${t("markedHours")}: ${validation.selectedHours} / ${contractRules[profile.contract].requiredHours}`,
       "",
-      `${t("print.blocks")}: ${validation.blockDays}`,
+      `${t("blocks")}: ${validation.blockDays}`,
       "",
-      `${t("print.course")}: ${validation.countedCourses}`,
+      `${t("course")}: ${validation.countedCourses}`,
     ],
     18,
   );
