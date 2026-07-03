@@ -14,7 +14,12 @@ const checks = [
     expectedOkBody: true,
   },
   {
-    path: "/sign-in",
+    path: "/",
+    expectedStatus: 307,
+    expectedLocation: "/es",
+  },
+  {
+    path: "/es/sign-in",
     expectedStatus: 200,
   },
   {
@@ -22,24 +27,24 @@ const checks = [
     expectedStatus: 401,
   },
   {
-    path: "/direction",
+    path: "/es/direction",
     expectedStatus: 307,
-    expectedLocation: "/sign-in",
+    expectedLocation: "/es/sign-in",
   },
   {
-    path: "/direction/users",
+    path: "/es/direction/users",
     expectedStatus: 307,
-    expectedLocation: "/sign-in",
+    expectedLocation: "/es/sign-in",
   },
   {
-    path: "/direction/audit",
+    path: "/es/direction/audit",
     expectedStatus: 307,
-    expectedLocation: "/sign-in",
+    expectedLocation: "/es/sign-in",
   },
   {
-    path: "/direction/settings",
+    path: "/es/direction/settings",
     expectedStatus: 307,
-    expectedLocation: "/sign-in",
+    expectedLocation: "/es/sign-in",
   },
 ];
 
@@ -48,6 +53,7 @@ const results = [];
 for (const check of checks) {
   const response = await fetch(`${baseUrl}${check.path}`, {
     redirect: "manual",
+    signal: AbortSignal.timeout(10_000),
   });
   const location = response.headers.get("location");
   const body = check.expectedOkBody
@@ -55,7 +61,8 @@ for (const check of checks) {
     : null;
   const ok =
     response.status === check.expectedStatus &&
-    (!check.expectedLocation || location === check.expectedLocation) &&
+    (!check.expectedLocation ||
+      locationPath(location) === check.expectedLocation) &&
     (!check.expectedOkBody || body?.ok === true);
   results.push({
     path: check.path,
@@ -71,6 +78,17 @@ console.log(JSON.stringify({ ok: failed.length === 0, results }, null, 2));
 
 if (failed.length) {
   throw new Error("Smoke checks failed.");
+}
+
+function locationPath(location: string | null) {
+  if (!location) {
+    return null;
+  }
+  try {
+    return new URL(location).pathname;
+  } catch {
+    return location;
+  }
 }
 
 export {};

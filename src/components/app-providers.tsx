@@ -6,13 +6,11 @@ import { ThemeProvider } from "next-themes";
 import type React from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { stripLocale } from "@/i18n/routing";
 
-export function AppProviders({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export function AppProviders({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const appPathname = stripLocale(pathname || "/");
   const content = (
     <ThemeProvider
       attribute="class"
@@ -28,11 +26,11 @@ export function AppProviders({
   );
 
   if (
-    pathname?.startsWith("/demo") ||
+    appPathname.startsWith("/demo") ||
     (process.env.NODE_ENV !== "production" &&
-      (pathname?.startsWith("/teacher") ||
-        pathname?.startsWith("/direction") ||
-        pathname?.startsWith("/onboarding")))
+      (appPathname.startsWith("/teacher") ||
+        appPathname.startsWith("/direction") ||
+        appPathname.startsWith("/onboarding")))
   ) {
     return content;
   }

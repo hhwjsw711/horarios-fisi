@@ -1,7 +1,20 @@
 import { SignIn } from "@clerk/nextjs";
 import Image from "next/image";
+import { redirect } from "next/navigation";
+import { getTranslations } from "next-intl/server";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { isLocale, localePath } from "@/i18n/routing";
 
-export default function SignInPage() {
+export default async function SignInPage({
+  params,
+}: {
+  params: Promise<{ lang: string }>;
+}) {
+  const { lang } = await params;
+  if (!isLocale(lang)) {
+    redirect("/es/sign-in");
+  }
+  const t = await getTranslations({ locale: lang });
   return (
     <main className="flex h-screen items-center justify-center overflow-hidden bg-background p-3 text-foreground md:p-6">
       <section className="grid h-full max-h-[620px] w-full max-w-5xl overflow-hidden rounded-lg border bg-card shadow-sm md:grid-cols-[minmax(0,1fr)_420px]">
@@ -26,21 +39,26 @@ export default function SignInPage() {
           </div>
           <div className="max-w-xl space-y-4">
             <p className="font-serif text-4xl leading-tight">
-              Ingreso para docentes y Dirección Académica.
+              {t("auth.heroTitle")}
             </p>
             <p className="text-sidebar-foreground/75 text-sm leading-6">
-              Sistema de registro y revisión de disponibilidad docente del
-              semestre vigente.
+              {t("auth.heroDescription")}
             </p>
           </div>
-          <p className="border-sidebar-border border-t pt-3 text-sidebar-foreground/70 text-sm">
-            Facultad de Ingeniería de Sistemas e Informática
-          </p>
+          <div className="space-y-3 border-sidebar-border border-t pt-3">
+            <p className="text-sidebar-foreground/70 text-sm">
+              {t("auth.faculty")}
+            </p>
+            <LanguageSwitcher />
+          </div>
         </div>
-        <section className="flex min-h-0 items-center justify-center p-4 md:p-6">
+        <section className="flex min-h-0 flex-col items-center justify-center gap-4 p-4 md:p-6">
+          <div className="flex w-full max-w-md justify-end md:hidden">
+            <LanguageSwitcher />
+          </div>
           <SignIn
             routing="path"
-            path="/sign-in"
+            path={localePath(lang, "/sign-in")}
             appearance={{
               elements: {
                 rootBox: "w-full max-w-md",

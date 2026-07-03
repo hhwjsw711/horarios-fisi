@@ -35,7 +35,11 @@ export async function runScheduleAction(
     return { ok: true, data: await runAction(identity, body) };
   } catch (error) {
     if (error instanceof ScheduleError) {
-      return { ok: false, error: error.message, status: error.status };
+      return {
+        ok: false,
+        error: translateScheduleError(error.message),
+        status: error.status,
+      };
     }
     throw error;
   }
@@ -189,3 +193,45 @@ async function updateClerkRole(userId: string, role: AppRole) {
     throw new ScheduleError("No se pudo actualizar el rol en Clerk.", 502);
   }
 }
+
+function translateScheduleError(message: string) {
+  const key = message
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase("es-PE");
+  return scheduleErrorMessages[key] ?? message;
+}
+
+const scheduleErrorMessages: Record<string, string> = {
+  "accion no valida.": "toast.invalidAction",
+  "aprueba todos los horarios antes de cerrar.":
+    "toast.approveAllBeforeClosing",
+  "aun faltan reglas por completar.": "toast.scheduleFailsRules",
+  "clase docente no valida.": "toast.invalidFacultyClass",
+  "codigo institucional no valido.": "toast.invalidInstitutionalCode",
+  "csv no valido.": "toast.invalidCsv",
+  "curso no encontrado.": "toast.courseNotFound",
+  "curso no valido.": "toast.invalidCourse",
+  "curso y escuela son obligatorios.": "toast.courseAndSchoolRequired",
+  "debe quedar al menos un usuario admin.": "toast.mustKeepOneAdmin",
+  "departamento no valido.": "toast.invalidDepartment",
+  "docente fuera de tu departamento.": "toast.teacherOutsideDepartment",
+  "docente no encontrado.": "toast.facultyNotFound",
+  "el horario no cumple las reglas.": "toast.scheduleFailsRules",
+  "el periodo academico esta cerrado.": "toast.periodAlreadyClosed",
+  "escribe una observacion mas especifica.": "toast.observationTooShort",
+  "no hay docentes para cerrar el periodo.": "toast.noTeachersToClosePeriod",
+  "no puedes retirar tu propio acceso.": "toast.cannotRemoveOwnAccess",
+  "no se pudo actualizar el rol en clerk.": "toast.clerkRoleUpdateFailed",
+  "no tienes acceso admin.": "toast.noAdminAccess",
+  "no tienes acceso direccion.": "toast.noDirectionAccess",
+  "perfil no valido.": "toast.invalidProfile",
+  "periodo academico no valido.": "toast.invalidAcademicPeriod",
+  "revision no valida.": "toast.invalidReview",
+  "sandbox docente no encontrado.": "toast.sandboxNotFound",
+  "solo puedes aprobar horarios enviados.": "toast.onlySubmittedCanBeApproved",
+  "tu cuenta no tiene perfil docente asignado.": "toast.noFacultyProfile",
+  "usuario no encontrado.": "toast.userNotFound",
+  "usuario no valido.": "toast.userNotFound",
+  "ya alcanzaste el maximo de cursos permitido.": "toast.maxCoursesAllowed",
+};

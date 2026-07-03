@@ -124,11 +124,11 @@ URL paths, route folders, file names, code identifiers, and documentation are in
 - Role values stored in Clerk metadata and `app_users.role`: `docente`, `direccion`, `admin`
 - Profile status values in `teacher_profiles.status` and `teacher_sandboxes.status`: `borrador`, `enviado`, `observado`, `aprobado`
 - Schedule event types in `schedule_events.event_type`
-- End-user UI copy (toasts, labels, headings visible to FISI community members)
+- Source UI copy lives in locale dictionaries for Spanish, English, Simplified Chinese, and Traditional Chinese.
 
-Test: does the string appear in a URL or file system path? Rename it to English. Does it get stored in the database, compared against stored data, or shown to the end user? Keep it in Spanish.
+Test: does the string appear in a URL or file system path? Keep the route segment or file name in English behind the locale prefix. Does it get stored in the database or compared against stored data? Keep the persisted value in Spanish. Is it shown to the end user? Put it behind the i18n dictionary boundary.
 
-Old URLs (`/docente`, `/direccion`, `/direccion/auditoria`, `/direccion/usuarios`, `/direccion/configuracion`) redirect permanently with HTTP 308 to their English equivalents (`/teacher`, `/direction`, `/direction/audit`, `/direction/users`, `/direction/settings`) via `next.config.ts`.
+Localized URLs use a required locale prefix (`/es`, `/en`, `/zh-CN`, `/zh-TW`). Requests without a locale, and old Spanish URLs such as `/docente` and `/direccion`, are redirected by `src/proxy.ts` to the negotiated locale plus the English route segment (for example `/es/teacher`).
 
 ## Use as a template
 

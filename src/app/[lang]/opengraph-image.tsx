@@ -1,4 +1,6 @@
 import { ImageResponse } from "next/og";
+import { getTranslations } from "next-intl/server";
+import { defaultLocale, isLocale } from "@/i18n/routing";
 
 export const size = {
   width: 1200,
@@ -7,7 +9,20 @@ export const size = {
 
 export const contentType = "image/png";
 
-export default function Image() {
+export default async function Image({
+  params,
+}: {
+  params: Promise<{ lang: string }>;
+}) {
+  const { lang } = await params;
+  const locale = isLocale(lang) ? lang : defaultLocale;
+  const t = await getTranslations({ locale });
+  const stats = [
+    t("auth.statsFaculty"),
+    t("auth.statsDirection"),
+    t("auth.statsSemester"),
+  ];
+
   return new ImageResponse(
     <div
       style={{
@@ -87,9 +102,9 @@ export default function Image() {
               color: "rgba(244,239,225,0.78)",
             }}
           >
-            <div>Docentes</div>
-            <div>Dirección Académica</div>
-            <div>Semestre 2026.2</div>
+            {stats.map((item) => (
+              <div key={item}>{item}</div>
+            ))}
           </div>
         </div>
         <div
@@ -116,12 +131,12 @@ export default function Image() {
           <div
             style={{
               maxWidth: 610,
-              fontSize: 70,
+              fontSize: 64,
               fontWeight: 700,
-              lineHeight: 0.98,
+              lineHeight: 1,
             }}
           >
-            Registro académico de disponibilidad docente
+            {t("auth.landingTitle")}
           </div>
           <div
             style={{
@@ -132,8 +147,7 @@ export default function Image() {
               lineHeight: 1.35,
             }}
           >
-            Acceso institucional para registrar, revisar y cerrar horarios del
-            semestre vigente.
+            {t("meta.ogDescription")}
           </div>
         </div>
       </div>

@@ -28,8 +28,7 @@ import {
   Users,
 } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { useTheme } from "next-themes";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +38,7 @@ import {
   runScheduleMutation,
   runTeacherCourseImport,
 } from "@/app/schedule-actions";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import {
   Alert,
   AlertAction,
@@ -126,6 +126,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Link, useRouter } from "@/i18n/navigation";
 import type { ScheduleMutationAction } from "@/lib/api/schedule-action-types";
 import { visibleCoursesForSchool } from "@/lib/domain/schedule-courses";
 import {
@@ -191,6 +192,10 @@ async function readApiError(response: Response, fallback: string) {
   }
 }
 
+function toastKey(error: string) {
+  return error.startsWith("toast.") ? error.slice("toast.".length) : error;
+}
+
 function initialCourseSchool(payload: SchedulePayload) {
   return payload.profile.courses[0]?.school ?? payload.schools[0] ?? schools[0];
 }
@@ -214,6 +219,16 @@ export function ScheduleApp({
   view: ViewKey;
 }) {
   const router = useRouter();
+  const locale = useLocale();
+  const t = useTranslations("toast");
+  const tFrame = useTranslations("scheduleFrame");
+  const tStatus = useTranslations("status");
+  const tRoutes = useTranslations("routes");
+  const tContracts = useTranslations("contracts");
+  const tMisc = useTranslations("misc");
+  const tPrint = useTranslations("print");
+  const tDays = useTranslations("days");
+  const tRules = useTranslations("ruleMessages");
   const endpoint = preview ? "/api/schedule?preview=1" : "/api/schedule";
   const useServerActions = Boolean(initialData) && !preview;
   const [data, setData] = useState<SchedulePayload | null>(
@@ -269,7 +284,7 @@ export function ScheduleApp({
     setError(null);
     const response = await fetch(endpoint, { cache: "no-store" });
     if (!response.ok) {
-      setError("No se pudo cargar la información institucional.");
+      setError(t("loadInstitutionFailed"));
       return;
     }
     const payload = (await response.json()) as SchedulePayload;
@@ -283,7 +298,7 @@ export function ScheduleApp({
         : (visibleCatalog[0]?.id ?? current),
     );
     setSelectedTeacherId((current) => current ?? payload.profile.id);
-  }, [endpoint, writeData]);
+  }, [endpoint, t, writeData]);
 
   useEffect(() => {
     if (initialData) {
@@ -320,6 +335,8 @@ export function ScheduleApp({
       query: teacherQuery,
       showOnlyPending,
       statusFilter: teacherStatusFilter,
+      t: tStatus,
+      tContracts,
     });
     if (!nextTeachers.length) {
       return;
@@ -335,6 +352,8 @@ export function ScheduleApp({
     showOnlyPending,
     teacherQuery,
     teacherStatusFilter,
+    tContracts,
+    tStatus,
     view,
   ]);
 
@@ -350,7 +369,12 @@ export function ScheduleApp({
       if (useServerActions) {
         const result = await runScheduleMutation(body);
         if (!result.ok) {
-          toast.error(result.error);
+          const errKey = result.error ?? "";
+          toast.error(
+            errKey.startsWith("toast.")
+              ? t(toastKey(errKey) as never)
+              : errKey || t("saveChangeFailed"),
+          );
           return null;
         }
         if (options.commitPayload !== false) {
@@ -364,8 +388,11 @@ export function ScheduleApp({
         body: JSON.stringify(body),
       });
       if (!response.ok) {
+        const apiError = await readApiError(response, t("saveChangeFailed"));
         toast.error(
-          await readApiError(response, "No se pudo guardar el cambio."),
+          apiError.startsWith("toast.")
+            ? t(toastKey(apiError) as never)
+            : apiError,
         );
         return null;
       }
@@ -375,7 +402,7 @@ export function ScheduleApp({
       }
       return payload;
     } catch {
-      toast.error("No se pudo conectar con el servidor.");
+      toast.error(t("connectFailed"));
       return null;
     } finally {
       if (showSaving) {
@@ -398,6 +425,8 @@ export function ScheduleApp({
     query: teacherQuery,
     showOnlyPending,
     statusFilter: teacherStatusFilter,
+    t: tStatus,
+    tContracts,
   });
   const selectedTeacher =
     allTeachers.find((teacher) => teacher.id === selectedTeacherId) ?? profile;
@@ -435,7 +464,9 @@ export function ScheduleApp({
   const sidebarCompletion =
     canUseDirection && view !== "docente" ? reviewCompletion : completion;
   const sidebarCompletionLabel =
-    canUseDirection && view !== "docente" ? "Revisión" : "Docente";
+    canUseDirection && view !== "docente"
+      ? tFrame("review")
+      : tRoutes("teacher");
   const setTeacherCoursePending = (teacherId: string, pending: boolean) => {
     setCourseSavingIds((current) => {
       if (pending) {
@@ -480,7 +511,7 @@ export function ScheduleApp({
 
   const handleToggleSlot = (day: DayKey, hour: number) => {
     if (periodClosed) {
-      toast.error("El periodo académico está cerrado.");
+      toast.error(t("periodAlreadyClosed"));
       return;
     }
     const key = slotKey(day, hour);
@@ -527,7 +558,7 @@ export function ScheduleApp({
 
   const handleContractChange = (contract: ContractKey) => {
     if (periodClosed) {
-      toast.error("El periodo académico está cerrado.");
+      toast.error(t("periodAlreadyClosed"));
       return;
     }
     const previous = data;
@@ -552,7 +583,7 @@ export function ScheduleApp({
 
   const handleAddCourse = async () => {
     if (periodClosed) {
-      toast.error("El periodo académico está cerrado.");
+      toast.error(t("periodAlreadyClosed"));
       return;
     }
     const course = catalogForSchool.find((item) => item.id === courseId);
@@ -560,14 +591,14 @@ export function ScheduleApp({
       return;
     }
     if (profile.courses.some((item) => item.id === course.id)) {
-      toast.info("Ese curso ya está seleccionado.");
+      toast.info(t("courseAlreadySelected"));
       return;
     }
     if (
       !course.isThesis &&
       validation.countedCourses >= contractRules[profile.contract].maxCourses
     ) {
-      toast.error("Ya alcanzaste el máximo de cursos para tu clase docente.");
+      toast.error(t("maxCoursesReached"));
       return;
     }
     const previous = data;
@@ -596,7 +627,7 @@ export function ScheduleApp({
             status: "borrador",
           })),
         );
-        toast.success("Curso agregado.");
+        toast.success(t("courseAdded"));
       } else if (previous) {
         writeData(previous);
       }
@@ -605,7 +636,7 @@ export function ScheduleApp({
 
   const handleRemoveCourse = async (id: string) => {
     if (periodClosed) {
-      toast.error("El periodo académico está cerrado.");
+      toast.error(t("periodAlreadyClosed"));
       return;
     }
     const previous = data;
@@ -630,7 +661,7 @@ export function ScheduleApp({
             status: "borrador",
           })),
         );
-        toast.success("Curso retirado.");
+        toast.success(t("courseRemoved"));
       } else if (previous) {
         writeData(previous);
       }
@@ -639,40 +670,54 @@ export function ScheduleApp({
 
   const handleSubmit = async () => {
     if (periodClosed) {
-      toast.error("El periodo académico está cerrado.");
+      toast.error(t("periodAlreadyClosed"));
       return;
     }
     if (!validation.complete) {
-      toast.error(scheduleCorrectionMessage(profile, validation));
+      toast.error(scheduleCorrectionMessage(profile, validation, tRules));
       return;
     }
     const payload = await request({ action: "submit" });
     if (payload) {
       toast.success(
-        teacherMode === "sandbox"
-          ? "Prueba enviada. No afecta revisión oficial."
-          : "Horario enviado para revisión.",
+        teacherMode === "sandbox" ? t("sandboxSubmitted") : t("submitted"),
       );
     }
   };
 
   const handleExportXlsx = async () => {
-    await exportXlsx(selectedTeacher, selectedValidation, academicTerm);
-    toast.success("Excel generado.");
+    await exportXlsx(
+      selectedTeacher,
+      selectedValidation,
+      academicTerm,
+      locale,
+      tPrint,
+      tMisc,
+      tDays,
+    );
+    toast.success(t("excelGenerated"));
   };
 
   const handleExportPdf = async () => {
-    await exportPdf(selectedTeacher, selectedValidation, academicTerm);
-    toast.success("PDF generado.");
+    await exportPdf(
+      selectedTeacher,
+      selectedValidation,
+      academicTerm,
+      locale,
+      tPrint,
+      tMisc,
+      tDays,
+    );
+    toast.success(t("pdfGenerated"));
   };
 
   const handleExportAllPdf = async () => {
     if (!allTeachers.length) {
-      toast.error("No hay docentes para exportar.");
+      toast.error(t("noTeachersToExport"));
       return;
     }
-    await exportAllPdf(allTeachers, academicTerm);
-    toast.success(`${allTeachers.length} páginas listas para imprimir.`);
+    await exportAllPdf(allTeachers, academicTerm, locale, tPrint, tMisc, tDays);
+    toast.success(t("pagesReadyToPrint", { count: allTeachers.length }));
   };
 
   const handleSelectTeacher = (id: string) => {
@@ -683,12 +728,12 @@ export function ScheduleApp({
 
   const handleObserveTeacher = async () => {
     if (periodClosed) {
-      toast.error("El periodo académico está cerrado.");
+      toast.error(t("periodAlreadyClosed"));
       return;
     }
     const note = reviewNote.trim();
     if (note.length < 8) {
-      toast.error("Escribe una observación más específica.");
+      toast.error(t("observationTooShort"));
       return;
     }
     const payload = await request({
@@ -697,22 +742,22 @@ export function ScheduleApp({
       note,
     });
     if (payload) {
-      toast.success("Observación registrada.");
+      toast.success(t("observationRecorded"));
       setReviewNote("");
     }
   };
 
   const handleApproveTeacher = async () => {
     if (periodClosed) {
-      toast.error("El periodo académico está cerrado.");
+      toast.error(t("periodAlreadyClosed"));
       return;
     }
     if (selectedTeacher.status !== "enviado") {
-      toast.error("Solo puedes aprobar horarios enviados.");
+      toast.error(t("onlySubmittedCanBeApproved"));
       return;
     }
     if (!selectedValidation.complete) {
-      toast.error("El horario no cumple las reglas.");
+      toast.error(t("scheduleFailsRules"));
       return;
     }
     const payload = await request({
@@ -720,7 +765,7 @@ export function ScheduleApp({
       teacherId: selectedTeacher.id,
     });
     if (payload) {
-      toast.success("Horario aprobado.");
+      toast.success(t("scheduleApproved"));
     }
   };
 
@@ -740,7 +785,7 @@ export function ScheduleApp({
       isThesis,
     });
     if (payload) {
-      toast.success("Curso guardado en el catálogo.");
+      toast.success(t("courseSavedToCatalog"));
     }
     return payload;
   };
@@ -755,7 +800,7 @@ export function ScheduleApp({
       active,
     });
     if (payload) {
-      toast.success(active ? "Curso reactivado." : "Curso suspendido.");
+      toast.success(active ? t("courseReactivated") : t("courseSuspended"));
     }
   };
 
@@ -765,7 +810,7 @@ export function ScheduleApp({
       academicTerm: academicTermValue,
     });
     if (payload) {
-      toast.success("Periodo académico actualizado.");
+      toast.success(t("periodUpdated"));
     }
     return payload;
   };
@@ -776,7 +821,7 @@ export function ScheduleApp({
       closed,
     });
     if (payload) {
-      toast.success(closed ? "Periodo cerrado." : "Periodo reabierto.");
+      toast.success(closed ? t("periodClosed") : t("periodReopened"));
     }
     return payload;
   };
@@ -793,7 +838,7 @@ export function ScheduleApp({
       school: schoolValue,
     });
     if (payload) {
-      toast.success("Acceso actualizado.");
+      toast.success(t("accessUpdated"));
     }
     return payload;
   };
@@ -816,18 +861,22 @@ export function ScheduleApp({
           replaceTeachers,
         });
         if (!result.ok) {
-          toast.error(result.error);
+          toast.error(
+            result.error.startsWith("toast.")
+              ? t(toastKey(result.error) as never)
+              : result.error,
+          );
           return null;
         }
         writeData(result.result.payload);
         if (result.result.ok) {
           toast.success(
             result.result.applied
-              ? "Carga docente aplicada."
-              : "CSV validado correctamente.",
+              ? t("teachingLoadApplied")
+              : t("csvValidated"),
           );
         } else {
-          toast.error("CSV con observaciones por corregir.");
+          toast.error(t("csvHasObservations"));
         }
         return result.result;
       }
@@ -842,8 +891,11 @@ export function ScheduleApp({
         }),
       });
       if (!response.ok) {
+        const apiError = await readApiError(response, t("csvImportFailed"));
         toast.error(
-          await readApiError(response, "No se pudo importar el CSV."),
+          apiError.startsWith("toast.")
+            ? t(toastKey(apiError) as never)
+            : apiError,
         );
         return null;
       }
@@ -851,16 +903,14 @@ export function ScheduleApp({
       writeData(result.payload);
       if (result.ok) {
         toast.success(
-          result.applied
-            ? "Carga docente aplicada."
-            : "CSV validado correctamente.",
+          result.applied ? t("teachingLoadApplied") : t("csvValidated"),
         );
       } else {
-        toast.error("CSV con observaciones por corregir.");
+        toast.error(t("csvHasObservations"));
       }
       return result;
     } catch {
-      toast.error("No se pudo conectar con el servidor.");
+      toast.error(t("connectFailed"));
       return null;
     } finally {
       setSaving(false);
@@ -905,7 +955,7 @@ export function ScheduleApp({
             status: "borrador",
           })),
         );
-        toast.success("Curso asignado al docente.");
+        toast.success(t("courseAssignedToTeacher"));
       } else {
         writeData(previous);
       }
@@ -945,7 +995,7 @@ export function ScheduleApp({
             status: "borrador",
           })),
         );
-        toast.success("Curso retirado del docente.");
+        toast.success(t("courseRemovedFromTeacher"));
       } else {
         writeData(previous);
       }
@@ -1070,6 +1120,8 @@ export function OnboardingRouteApp({
   preview?: boolean;
 }) {
   const router = useRouter();
+  const _locale = useLocale();
+  const t = useTranslations("toast");
   const [data, setData] = useState<SchedulePayload | null>(
     () => initialData ?? null,
   );
@@ -1084,12 +1136,12 @@ export function OnboardingRouteApp({
     fetch(endpoint, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) {
-          throw new Error("No se pudo cargar el perfil.");
+          throw new Error(t("profileLoadFailed"));
         }
         setData((await response.json()) as SchedulePayload);
       })
       .catch((caught) => setError(caught.message));
-  }, [endpoint, initialData]);
+  }, [endpoint, initialData, t]);
 
   const handleComplete = async (next: Onboarding) => {
     if (useServerActions) {
@@ -1099,7 +1151,12 @@ export function OnboardingRouteApp({
         code: next.code,
       });
       if (!result.ok) {
-        toast.error(result.error);
+        const errKey = result.error ?? "";
+        toast.error(
+          errKey.startsWith("toast.")
+            ? t(toastKey(errKey) as never)
+            : errKey || t("profileSaveFailed"),
+        );
         return;
       }
       router.push(result.payload.canUseDirection ? "/direction" : "/teacher");
@@ -1116,9 +1173,7 @@ export function OnboardingRouteApp({
       }),
     });
     if (!response.ok) {
-      toast.error(
-        await readApiError(response, "No se pudo guardar el perfil."),
-      );
+      toast.error(await readApiError(response, t("profileSaveFailed")));
       return;
     }
     router.push("/teacher");
@@ -1171,6 +1226,10 @@ function ScheduleFrame({
   status: TeacherProfile["status"];
   userName: string;
 }) {
+  const t = useTranslations("scheduleFrame");
+  const tStatus = useTranslations("status");
+  const tRoutes = useTranslations("routes");
+  const tMisc = useTranslations("misc");
   return (
     <SidebarProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -1195,12 +1254,14 @@ function ScheduleFrame({
               <Separator orientation="vertical" className="h-6" />
               <div className="min-w-0">
                 <div className="flex items-center gap-2 text-muted-foreground text-xs">
-                  <span>Semestre académico {academicTerm}</span>
+                  <span>{t("academicTerm", { term: academicTerm })}</span>
                   <ChevronRight className="size-3" />
-                  <span className="truncate">{routeLabel(selectedView)}</span>
+                  <span className="truncate">
+                    {routeLabel(selectedView, tRoutes)}
+                  </span>
                 </div>
                 <h1 className="truncate font-serif text-lg font-semibold md:text-xl">
-                  Horarios UNMSM
+                  {t("title")}
                 </h1>
               </div>
             </div>
@@ -1213,10 +1274,12 @@ function ScheduleFrame({
                 }
                 className="hidden sm:inline-flex"
               >
-                {periodClosed ? "Periodo cerrado" : statusLabel(status)}
+                {periodClosed
+                  ? t("periodClosed")
+                  : statusLabel(status, tStatus)}
               </Badge>
               <Badge variant="outline" className="hidden md:inline-flex">
-                {roleLabel(currentRole)}
+                {roleLabel(currentRole, tMisc)}
               </Badge>
               <ThemeToggle />
               {canSignOut ? <UserButton /> : null}
@@ -1252,13 +1315,18 @@ function AppSidebar({
   selectedView: ViewKey;
   userName: string;
 }) {
+  const _locale = useLocale();
+  const tCommon = useTranslations("common");
+  const tRoutes = useTranslations("routes");
+  const tSidebar = useTranslations("sidebar");
+  const tMisc = useTranslations("misc");
   return (
     <>
       <SidebarHeader className="h-14 border-sidebar-border border-b p-2 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0">
         <div className="flex h-10 w-full items-center gap-3 rounded-lg px-1 group-data-[collapsible=icon]:size-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border group-data-[collapsible=icon]:border-sidebar-border group-data-[collapsible=icon]:bg-sidebar-accent group-data-[collapsible=icon]:px-0">
           <Image
             src="/escudo-unmsm.png"
-            alt="Escudo UNMSM"
+            alt={tMisc("escudoAlt")}
             width={40}
             height={40}
             className="rounded-md bg-vellum p-1 group-data-[collapsible=icon]:hidden"
@@ -1270,36 +1338,43 @@ function AppSidebar({
               UNMSM
             </p>
             <p className="truncate font-serif font-semibold text-lg">
-              Horarios
+              {tSidebar("brand")}
             </p>
           </div>
         </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-          <SidebarGroupLabel>Sesión</SidebarGroupLabel>
+          <SidebarGroupLabel>{tCommon("language")}</SidebarGroupLabel>
+          <SidebarGroupContent className="px-2">
+            <LanguageSwitcher />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+          <SidebarGroupLabel>{tSidebar("session")}</SidebarGroupLabel>
           <SidebarGroupContent className="space-y-2 px-2">
             <p className="truncate font-medium text-sidebar-foreground">
               {userName}
             </p>
             <p className="text-sidebar-foreground/70 text-xs">
-              {roleLabel(currentRole)}
+              {roleLabel(currentRole, tMisc)}
             </p>
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />
         <SidebarGroup className="group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:py-3">
-          <SidebarGroupLabel>Trabajo</SidebarGroupLabel>
+          <SidebarGroupLabel>{tSidebar("work")}</SidebarGroupLabel>
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
                 className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                 isActive={selectedView === "docente"}
                 render={<Link href="/teacher" />}
-                tooltip="Docente"
+                tooltip={tRoutes("teacher")}
               >
                 <CalendarClock />
-                <span>Docente</span>
+                <span>{tRoutes("teacher")}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             {canUseDirection ? (
@@ -1308,10 +1383,10 @@ function AppSidebar({
                   className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                   isActive={selectedView === "direccion"}
                   render={<Link href="/direction" />}
-                  tooltip="Dirección"
+                  tooltip={tRoutes("direction")}
                 >
                   <Users />
-                  <span>Dirección</span>
+                  <span>{tRoutes("direction")}</span>
                 </SidebarMenuButton>
                 <SidebarMenuBadge>{pendingCount}</SidebarMenuBadge>
               </SidebarMenuItem>
@@ -1323,10 +1398,10 @@ function AppSidebar({
                     className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                     isActive={selectedView === "usuarios"}
                     render={<Link href="/direction/users" />}
-                    tooltip="Usuarios"
+                    tooltip={tRoutes("users")}
                   >
                     <UserCog />
-                    <span>Usuarios</span>
+                    <span>{tRoutes("users")}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
@@ -1334,10 +1409,10 @@ function AppSidebar({
                     className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                     isActive={selectedView === "auditoria"}
                     render={<Link href="/direction/audit" />}
-                    tooltip="Auditoría"
+                    tooltip={tRoutes("audit")}
                   >
                     <History />
-                    <span>Auditoría</span>
+                    <span>{tRoutes("audit")}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
@@ -1345,10 +1420,10 @@ function AppSidebar({
                     className="group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:rounded-xl"
                     isActive={selectedView === "configuracion"}
                     render={<Link href="/direction/settings" />}
-                    tooltip="Configuración"
+                    tooltip={tRoutes("settings")}
                   >
                     <Settings2 />
-                    <span>Configuración</span>
+                    <span>{tRoutes("settings")}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </>
@@ -1357,7 +1432,7 @@ function AppSidebar({
         </SidebarGroup>
         <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />
         <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-          <SidebarGroupLabel>Progreso</SidebarGroupLabel>
+          <SidebarGroupLabel>{tSidebar("progress")}</SidebarGroupLabel>
           <SidebarGroupContent className="space-y-3 px-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-sidebar-foreground/70">
@@ -1382,7 +1457,7 @@ function AppSidebar({
               className="w-full border-sidebar-border bg-transparent text-sidebar-foreground group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:px-0"
             >
               <span className="group-data-[collapsible=icon]:hidden">
-                Cerrar sesión
+                {tSidebar("signOut")}
               </span>
               <Home className="hidden group-data-[collapsible=icon]:block" />
             </Button>
@@ -1396,12 +1471,13 @@ function AppSidebar({
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
   const nextTheme = resolvedTheme === "dark" ? "light" : "dark";
+  const t = useTranslations("sidebar");
   return (
     <Button
       variant="ghost"
       size="icon"
       onClick={() => setTheme(nextTheme)}
-      aria-label="Cambiar tema"
+      aria-label={t("changeTheme")}
     >
       <Sun className="hidden size-4 dark:block" />
       <Moon className="size-4 dark:hidden" />
@@ -1498,14 +1574,16 @@ function AppLoading() {
 }
 
 function AppError({ error, onRetry }: { error: string; onRetry: () => void }) {
+  const t = useTranslations("sidebar");
+  const tCommon = useTranslations("common");
   return (
     <main className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
       <Alert variant="error" className="max-w-lg">
         <AlertCircle />
-        <AlertTitle>No se pudo abrir Horarios UNMSM</AlertTitle>
+        <AlertTitle>{t("cannotOpen")}</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
         <AlertAction>
-          <Button onClick={onRetry}>Reintentar</Button>
+          <Button onClick={onRetry}>{tCommon("retry")}</Button>
         </AlertAction>
       </Alert>
     </main>
@@ -1528,10 +1606,13 @@ function OnboardingView({
   const [code, setCode] = useState("");
   const [saving, setSaving] = useState(false);
   const codeIsValid = code.trim().length >= 4;
+  const t = useTranslations("onboarding");
+  const tToast = useTranslations("toast");
+  const tMisc = useTranslations("misc");
 
   const handleSubmit = async () => {
     if (!codeIsValid) {
-      toast.error("Ingresa un código institucional válido.");
+      toast.error(tToast("invalidCode"));
       return;
     }
     setSaving(true);
@@ -1551,7 +1632,7 @@ function OnboardingView({
           <div className="flex items-center gap-3">
             <Image
               src="/escudo-unmsm.png"
-              alt="Escudo UNMSM"
+              alt={tMisc("escudoAlt")}
               width={52}
               height={52}
               className="rounded-md bg-vellum p-1"
@@ -1562,72 +1643,62 @@ function OnboardingView({
                 UNMSM
               </p>
               <p className="truncate font-serif text-2xl font-semibold">
-                Horarios FISI
+                {t("title")}
               </p>
             </div>
           </div>
           <div className="space-y-3">
-            <p className="font-serif text-3xl leading-tight">
-              Un solo perfil para registrar tu disponibilidad.
-            </p>
+            <p className="font-serif text-3xl leading-tight">{t("subtitle")}</p>
             <p className="text-sidebar-foreground/75 text-sm leading-6">
-              Verificaremos tu departamento y código docente antes de abrir el
-              horario del semestre.
+              {t("verifyDescription")}
             </p>
           </div>
           <div className="grid gap-2 text-sm">
-            {[
-              "Disponibilidad semanal",
-              "Cursos del semestre",
-              "Envío a Dirección Académica",
-            ].map((item) => (
-              <div className="flex items-center gap-2" key={item}>
-                <Check className="size-4 text-gold" />
-                <span>{item}</span>
-              </div>
-            ))}
+            {[t("weeklyAvailability"), t("termCourses"), t("submission")].map(
+              (item) => (
+                <div className="flex items-center gap-2" key={item}>
+                  <Check className="size-4 text-gold" />
+                  <span>{item}</span>
+                </div>
+              ),
+            )}
           </div>
         </div>
         <Card className="min-h-0 overflow-hidden border-0 shadow-none">
           <CardHeader className="border-b p-4">
             <Badge variant="secondary" className="w-fit">
-              Primer ingreso
+              {t("firstAccess")}
             </Badge>
             <CardTitle className="font-serif text-2xl">
-              Confirma tus datos
+              {t("confirmData")}
             </CardTitle>
-            <CardDescription>
-              Estos datos quedarán asociados a tu correo institucional.
-            </CardDescription>
+            <CardDescription>{t("dataAssociation")}</CardDescription>
           </CardHeader>
           <CardContent className="min-h-0 p-4">
             <div className="space-y-3">
               <Alert variant="info" className="rounded-md p-2.5">
                 <Info />
-                <AlertTitle>Cuenta detectada</AlertTitle>
+                <AlertTitle>{t("detectedAccount")}</AlertTitle>
                 <AlertDescription>
-                  {userEmail ?? "Correo institucional pendiente"}
+                  {userEmail ?? t("pendingEmail")}
                 </AlertDescription>
               </Alert>
               <Field className="rounded-md border bg-muted/25 p-3">
                 <div className="flex items-center gap-2 font-medium">
                   <CalendarClock className="size-4 text-gold" />
-                  Docente
+                  {t("roleLabel")}
                 </div>
-                <FieldDescription>
-                  Acceso para registrar disponibilidad, cursos y envío a
-                  revisión.
-                </FieldDescription>
+                <FieldDescription>{t("roleDescription")}</FieldDescription>
               </Field>
               <Field>
-                <FieldLabel>Departamento</FieldLabel>
+                <FieldLabel>{t("department")}</FieldLabel>
                 <Select value={school} onValueChange={setSchool}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecciona departamento" />
+                    <SelectValue placeholder={t("selectDepartment")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectLabel>Departamentos</SelectLabel>
+                      <SelectLabel>{t("departments")}</SelectLabel>
                       {schoolOptions.map((item) => (
                         <SelectItem key={item} value={item}>
                           {item}
@@ -1638,16 +1709,14 @@ function OnboardingView({
                 </Select>
               </Field>
               <Field>
-                <FieldLabel>Código docente</FieldLabel>
+                <FieldLabel>{t("facultyCode")}</FieldLabel>
                 <Input
                   value={code}
                   onChange={(event) => setCode(event.target.value)}
-                  placeholder="Ej. 082026"
+                  placeholder={t("codePlaceholder")}
                   type="text"
                 />
-                <FieldDescription>
-                  Usa el código indicado por la facultad.
-                </FieldDescription>
+                <FieldDescription>{t("codeHint")}</FieldDescription>
               </Field>
               <Button
                 className="w-full"
@@ -1656,7 +1725,7 @@ function OnboardingView({
                 onClick={handleSubmit}
               >
                 <Save data-icon="inline-start" />
-                Guardar perfil
+                {t("saveProfile")}
               </Button>
             </div>
           </CardContent>
@@ -1723,13 +1792,17 @@ function DocenteView({
     !selectedCourse ||
     selectedCourseAlreadyAdded ||
     selectedCourseLimitReached;
+  const t = useTranslations("teacher");
+  const tContracts = useTranslations("contracts");
+  const tScheduleBoard = useTranslations("scheduleBoard");
+  const tCommon = useTranslations("common");
   const addCourseLabel = periodClosed
-    ? "Cerrado"
+    ? tScheduleBoard("closed")
     : selectedCourseAlreadyAdded
-      ? "Agregado"
+      ? tScheduleBoard("added")
       : selectedCourseLimitReached
-        ? "Cupo lleno"
-        : "Agregar";
+        ? tScheduleBoard("quotaFull")
+        : tScheduleBoard("add");
   const creditTotal = profile.courses.reduce(
     (total, course) => total + (course.credits ?? 0),
     0,
@@ -1744,7 +1817,7 @@ function DocenteView({
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <CardTitle className="truncate font-serif text-lg md:text-xl">
-                Disponibilidad docente
+                {t("availability")}
               </CardTitle>
               <Badge variant="secondary">{academicTerm}</Badge>
               {sandboxMode ? (
@@ -1752,7 +1825,7 @@ function DocenteView({
                   variant="outline"
                   className="border-warning text-warning"
                 >
-                  Modo prueba
+                  {t("testMode")}
                 </Badge>
               ) : null}
             </div>
@@ -1761,7 +1834,7 @@ function DocenteView({
             <ToolbarGroup>
               {statusSaving ? (
                 <Badge variant="secondary" className="hidden md:inline-flex">
-                  Guardando
+                  {tCommon("saving")}
                 </Badge>
               ) : null}
               <Select
@@ -1771,15 +1844,27 @@ function DocenteView({
               >
                 <SelectTrigger className="w-[190px] max-w-[calc(100vw-160px)]">
                   <span className="truncate">
-                    {contractRules[profile.contract].label}
+                    {tContracts(
+                      profile.contract === "full"
+                        ? "fullTime"
+                        : profile.contract === "partial20"
+                          ? "partTime20"
+                          : "partTime10",
+                    )}
                   </span>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    <SelectLabel>Clase docente</SelectLabel>
-                    {Object.entries(contractRules).map(([key, item]) => (
+                    <SelectLabel>{t("teachingCategory")}</SelectLabel>
+                    {Object.keys(contractRules).map((key) => (
                       <SelectItem key={key} value={key}>
-                        {item.label}
+                        {tContracts(
+                          key === "full"
+                            ? "fullTime"
+                            : key === "partial20"
+                              ? "partTime20"
+                              : "partTime10",
+                        )}
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -1792,7 +1877,7 @@ function DocenteView({
                 render={<Button />}
               >
                 <Send data-icon="inline-start" />
-                Enviar
+                {t("submit")}
               </ToolbarButton>
             </ToolbarGroup>
           </Toolbar>
@@ -1810,9 +1895,9 @@ function DocenteView({
         {sandboxMode ? (
           <Alert className="rounded-md p-2" variant="warning">
             <Info />
-            <AlertTitle>Sandbox docente</AlertTitle>
+            <AlertTitle>{t("sandbox")}</AlertTitle>
             <AlertDescription className="text-xs">
-              Tus horas, cursos y envío quedan separados de los docentes reales.
+              {t("sandboxDescription")}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -1852,29 +1937,39 @@ function DocenteRuleStrip({
   profile: TeacherProfile;
   validation: Validation;
 }) {
+  const _locale = useLocale();
+  const t = useTranslations("teacher");
+  const tRules = useTranslations("ruleMessages");
   const rule = contractRules[profile.contract];
   const blockLabel =
     rule.requiredDailyBlockCount > 1
-      ? `${rule.requiredDailyBlockCount} bloques de 4 h`
-      : "bloque de 4 h";
-  const courseLabel = rule.maxCourses === 1 ? "curso" : "cursos";
-  const ruleSummary = `${rule.requiredDailyHours} h/día · ${blockLabel} · ${rule.requiredBlockDays} días · máx. ${rule.maxCourses} ${courseLabel}`;
+      ? tRules("blockPlural", { count: rule.requiredDailyBlockCount })
+      : tRules("blockSingular");
+  const courseLabel =
+    rule.maxCourses === 1 ? tRules("courseSingular") : tRules("coursePlural");
+  const ruleSummary = tRules("ruleSummary", {
+    hours: rule.requiredDailyHours,
+    blocks: blockLabel,
+    days: rule.requiredBlockDays,
+    maxCourses: rule.maxCourses,
+    courseLabel,
+  });
   const items = [
     {
       complete: validation.selectedHours >= rule.requiredHours,
-      label: "Horas",
+      label: t("hours"),
       value: `${validation.selectedHours}/${rule.requiredHours}`,
     },
     {
       complete: validation.blockDays >= rule.requiredBlockDays,
-      label: "Días válidos",
+      label: t("validDays"),
       value: `${validation.blockDays}/${rule.requiredBlockDays}`,
     },
     {
       complete:
         validation.countedCourses > 0 &&
         validation.countedCourses <= rule.maxCourses,
-      label: "Cursos",
+      label: t("courses"),
       value: `${validation.countedCourses}/${rule.maxCourses}`,
     },
   ];
@@ -1885,7 +1980,7 @@ function DocenteRuleStrip({
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="flex items-center gap-1.5 font-medium">
             <Info className="size-4 text-gold" />
-            Reglas
+            {t("rules")}
           </span>
           <span className="text-muted-foreground text-xs md:text-sm">
             {ruleSummary}
@@ -1893,7 +1988,7 @@ function DocenteRuleStrip({
         </div>
         {!validation.complete ? (
           <p className="truncate text-warning text-xs md:text-sm">
-            {scheduleCorrectionMessage(profile, validation)}
+            {scheduleCorrectionMessage(profile, validation, tRules)}
           </p>
         ) : null}
       </div>
@@ -1958,16 +2053,19 @@ function CoursesEditorCard({
     (course) => course.id === courseId,
   );
 
+  const tTeacher = useTranslations("teacher");
+  const tCatalog = useTranslations("catalog");
+
   return (
     <Card className="min-h-0 overflow-hidden">
       <CardHeader className="shrink-0 border-b px-2.5 py-1.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <CardTitle className="truncate text-base">
-              Cursos seleccionados
+              {tTeacher("selectedCourses")}
             </CardTitle>
             <CardDescription className="hidden truncate sm:block">
-              Carga permitida por contrato.
+              {tTeacher("loadAllowedByContract")}
             </CardDescription>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -1986,7 +2084,7 @@ function CoursesEditorCard({
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectLabel>Escuela Profesional</SelectLabel>
+                <SelectLabel>{tCatalog("professionalSchool")}</SelectLabel>
                 {schools.map((item) => (
                   <SelectItem key={item} value={item}>
                     {item}
@@ -2003,12 +2101,14 @@ function CoursesEditorCard({
             >
               <SelectTrigger className="w-full" size="sm">
                 <span className="truncate">
-                  {selectedCourse ? courseLabel(selectedCourse) : "Curso"}
+                  {selectedCourse
+                    ? courseLabel(selectedCourse)
+                    : tCatalog("course")}
                 </span>
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Curso</SelectLabel>
+                  <SelectLabel>{tCatalog("course")}</SelectLabel>
                   {catalogForSchool.map((course) => (
                     <SelectItem key={course.id} value={course.id}>
                       {courseLabel(course)}
@@ -2031,7 +2131,7 @@ function CoursesEditorCard({
         <div className="h-[clamp(150px,30vh,260px)] min-h-0 overflow-hidden rounded-md border bg-muted/20">
           <CourseCardsList
             courses={courses}
-            emptyDescription="Agrega los cursos que dictarás este semestre."
+            emptyDescription={tTeacher("addCoursesDescription")}
             onRemoveCourse={disabled ? undefined : handleRemoveCourse}
             removeDisabled={courseSaving}
           />
@@ -2080,6 +2180,13 @@ function ConfigurationView({
   schools: string[];
   teacherCount: number;
 }) {
+  const tDir = useTranslations("direction");
+  const tCat = useTranslations("catalog");
+  const tToast = useTranslations("toast");
+  const _tTeacher = useTranslations("teacher");
+  const tMisc = useTranslations("misc");
+  const _tStatus = useTranslations("status");
+  const tContracts = useTranslations("contracts");
   const [term, setTerm] = useState(academicTerm);
   const [name, setName] = useState("");
   const [school, setSchool] = useState(schoolOptions[0] ?? "");
@@ -2106,11 +2213,51 @@ function ConfigurationView({
     query: catalogQuery,
     schoolFilter: catalogSchoolFilter,
     statusFilter: catalogStatusFilter,
+    tCatalog: tCat,
   });
   const catalogFiltersActive =
     catalogQuery.trim().length > 0 ||
     catalogStatusFilter !== "all" ||
     catalogSchoolFilter !== "all";
+  const formatImportError = (item: string) => {
+    const facultyMatch = item.match(/^Fila (\d+): docente no encontrado\.$/);
+    if (facultyMatch) {
+      return tToast("csvRowFacultyNotFound", { row: facultyMatch[1] });
+    }
+    const missingCodeMatch = item.match(
+      /^Fila (\d+): curso sin código o id\.$/,
+    );
+    if (missingCodeMatch) {
+      return tToast("csvRowMissingCode", { row: missingCodeMatch[1] });
+    }
+    const ambiguousMatch = item.match(
+      /^Fila (\d+): código de curso ambiguo, agrega escuela o course_id\.$/,
+    );
+    if (ambiguousMatch) {
+      return tToast("csvRowAmbiguousCourse", { row: ambiguousMatch[1] });
+    }
+    const courseMatch = item.match(/^Fila (\d+): curso no encontrado\.$/);
+    if (courseMatch) {
+      return tToast("csvRowCourseNotFound", { row: courseMatch[1] });
+    }
+    const quotaMatch = item.match(
+      /^(.+): ([0-9]+\/[0-9]+) cursos no Tesis para (.+)\.$/,
+    );
+    if (quotaMatch) {
+      const category =
+        Object.values(contractRules).find(
+          (rule) => rule.fallbackLabel === quotaMatch[3],
+        )?.label ?? quotaMatch[3];
+      return tToast("quotaMessage", {
+        name: quotaMatch[1],
+        quota: quotaMatch[2],
+        category: category.startsWith("contracts.")
+          ? tContracts(category.slice("contracts.".length))
+          : category,
+      });
+    }
+    return item.startsWith("toast.") ? tToast(toastKey(item) as never) : item;
+  };
   const clearCatalogFilters = () => {
     setCatalogQuery("");
     setCatalogStatusFilter("all");
@@ -2130,7 +2277,7 @@ function ConfigurationView({
   const handleTermSubmit = async () => {
     const normalizedTerm = term.trim();
     if (normalizedTerm.length < 4) {
-      toast.error("Ingresa un periodo académico válido.");
+      toast.error(tToast("invalidPeriod"));
       return;
     }
     await onSetAcademicTerm(normalizedTerm);
@@ -2139,7 +2286,7 @@ function ConfigurationView({
   const handleSubmit = async () => {
     const normalizedName = name.trim();
     if (normalizedName.length < 3 || selectedSchool.length < 3) {
-      toast.error("Completa curso y escuela.");
+      toast.error(tToast("completeCourseAndSchool"));
       return;
     }
     const payload = await onCreateCourse({
@@ -2169,7 +2316,7 @@ function ConfigurationView({
 
   const handleTeacherCourseImport = async (apply: boolean) => {
     if (!teacherCourseImportCsv.trim()) {
-      toast.error("Selecciona un CSV de carga docente.");
+      toast.error(tToast("selectCsvFile"));
       return;
     }
     const result = await onImportTeacherCourses({
@@ -2188,17 +2335,17 @@ function ConfigurationView({
         <CardHeader className="border-b px-2.5 py-1.5">
           <CardTitle className="flex items-center gap-2 text-base">
             <Settings2 className="size-4 text-gold" />
-            Configuración institucional
+            {tDir("institutionalSettings")}
           </CardTitle>
           <CardDescription>
-            Periodo académico, escuelas y cursos.
+            {tDir("periodAndSchoolsAndCourses")}
           </CardDescription>
         </CardHeader>
         <CardContent className="min-h-0 p-0">
           <ScrollArea scrollFade scrollbarGutter>
             <div className="grid gap-2 px-2 py-1.5">
               <Field>
-                <FieldLabel>Periodo académico vigente</FieldLabel>
+                <FieldLabel>{tDir("currentAcademicPeriod")}</FieldLabel>
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                   <Input
                     onChange={(event) => setTerm(event.target.value)}
@@ -2211,22 +2358,22 @@ function ConfigurationView({
                     onClick={handleTermSubmit}
                     variant="outline"
                   >
-                    Guardar
+                    {tMisc("save")}
                   </Button>
                 </div>
               </Field>
               <Field className="rounded-md border bg-muted/25 p-2">
                 <div className="flex w-full items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <FieldLabel>Cierre de periodo</FieldLabel>
+                    <FieldLabel>{tDir("periodClosure")}</FieldLabel>
                     <FieldDescription>
                       {periodClosed
-                        ? `Cerrado${periodClosedAt ? `: ${periodClosedAt}` : ""}`
-                        : `${approvedCount}/${teacherCount} horarios aprobados.`}
+                        ? `${tDir("periodClosed")}${periodClosedAt ? `: ${periodClosedAt}` : ""}`
+                        : `${approvedCount}/${teacherCount} ${tDir("approvalsPending").toLowerCase()}`}
                     </FieldDescription>
                   </div>
                   <Badge variant={periodClosed ? "default" : "secondary"}>
-                    {periodClosed ? "Cerrado" : "Abierto"}
+                    {periodClosed ? tDir("periodClosed") : tMisc("open")}
                   </Badge>
                 </div>
                 <Button
@@ -2239,25 +2386,25 @@ function ConfigurationView({
                   }
                 >
                   {periodClosed
-                    ? "Reabrir periodo"
+                    ? tDir("reopenPeriod")
                     : canClosePeriod
-                      ? "Cerrar periodo"
-                      : "Faltan aprobaciones"}
+                      ? tDir("closePeriod")
+                      : tDir("approvalsPending")}
                 </Button>
               </Field>
               <Field className="rounded-md border bg-muted/25 p-2">
                 <div className="flex w-full items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <FieldLabel>Carga docente CSV</FieldLabel>
+                    <FieldLabel>{tDir("csvLoad")}</FieldLabel>
                     <FieldDescription className="truncate">
-                      {teacherCourseImportFile || "Sin archivo seleccionado"}
+                      {teacherCourseImportFile || tDir("noFileSelected")}
                     </FieldDescription>
                   </div>
                   <Upload className="mt-0.5 size-4 shrink-0 text-gold" />
                 </div>
                 <Input
                   accept=".csv,text/csv"
-                  aria-label="CSV de carga docente"
+                  aria-label={tDir("csvTeachingLoad")}
                   nativeInput
                   onChange={handleTeacherCourseFile}
                   size="sm"
@@ -2266,11 +2413,9 @@ function ConfigurationView({
                 <Field className="flex-row items-center justify-between rounded-md border bg-background/70 px-2 py-1">
                   <div>
                     <FieldLabel className="text-xs">
-                      Reemplazar docentes incluidos
+                      {tDir("replaceIncludedFaculty")}
                     </FieldLabel>
-                    <FieldDescription>
-                      Actualiza solo filas del CSV.
-                    </FieldDescription>
+                    <FieldDescription>{tDir("replaceHint")}</FieldDescription>
                   </div>
                   <Switch
                     checked={replaceTeacherCourses}
@@ -2285,7 +2430,7 @@ function ConfigurationView({
                     size="sm"
                     variant="outline"
                   >
-                    Validar
+                    {tDir("validate")}
                   </Button>
                   <Button
                     disabled={
@@ -2298,7 +2443,7 @@ function ConfigurationView({
                     onClick={() => handleTeacherCourseImport(true)}
                     size="sm"
                   >
-                    Aplicar
+                    {tDir("apply")}
                   </Button>
                 </div>
                 {teacherCourseImportResult ? (
@@ -2313,19 +2458,27 @@ function ConfigurationView({
                     )}
                     <AlertTitle>
                       {teacherCourseImportResult.ok
-                        ? `${teacherCourseImportResult.assignments} asignaciones`
-                        : `${teacherCourseImportResult.errors.length} observaciones`}
+                        ? tDir("importAssignments", {
+                            count: teacherCourseImportResult.assignments,
+                          })
+                        : tDir("importObservations", {
+                            count: teacherCourseImportResult.errors.length,
+                          })}
                     </AlertTitle>
                     <AlertDescription>
                       {teacherCourseImportResult.ok ? (
                         <span>
-                          {teacherCourseImportResult.teachers} docentes ·{" "}
-                          {teacherCourseImportResult.rows} filas
+                          {tDir("importTeachersRows", {
+                            rows: teacherCourseImportResult.rows,
+                            teachers: teacherCourseImportResult.teachers,
+                          })}
                         </span>
                       ) : (
                         teacherCourseImportResult.errors
                           .slice(0, 3)
-                          .map((item) => <span key={item}>{item}</span>)
+                          .map((item) => (
+                            <span key={item}>{formatImportError(item)}</span>
+                          ))
                       )}
                     </AlertDescription>
                   </Alert>
@@ -2333,20 +2486,20 @@ function ConfigurationView({
               </Field>
               <Separator />
               <div>
-                <h2 className="font-medium text-sm">Nuevo curso</h2>
+                <h2 className="font-medium text-sm">{tCat("newCourse")}</h2>
                 <p className="text-muted-foreground text-xs">
-                  Disponible para selección docente.
+                  {tCat("availableForSelection")}
                 </p>
               </div>
               <Field>
-                <FieldLabel>Escuela existente</FieldLabel>
+                <FieldLabel>{tCat("existingSchool")}</FieldLabel>
                 <Select value={school} onValueChange={setSchool}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecciona escuela" />
+                    <SelectValue placeholder={tCat("selectSchool")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectLabel>Escuelas activas</SelectLabel>
+                      <SelectLabel>{tCat("activeSchools")}</SelectLabel>
                       {schoolOptions.map((item) => (
                         <SelectItem key={item} value={item}>
                           {item}
@@ -2357,18 +2510,16 @@ function ConfigurationView({
                 </Select>
               </Field>
               <Field>
-                <FieldLabel>Nueva escuela</FieldLabel>
+                <FieldLabel>{tCat("newSchool")}</FieldLabel>
                 <Input
                   onChange={(event) => setCustomSchool(event.target.value)}
                   placeholder="Opcional"
                   value={customSchool}
                 />
-                <FieldDescription>
-                  Si escribes aquí, se usará esta escuela.
-                </FieldDescription>
+                <FieldDescription>{tCat("newSchoolHint")}</FieldDescription>
               </Field>
               <Field>
-                <FieldLabel>Nombre del curso</FieldLabel>
+                <FieldLabel>{tCat("courseName")}</FieldLabel>
                 <Input
                   onChange={(event) => setName(event.target.value)}
                   placeholder="Ej. Ingeniería de Software"
@@ -2377,10 +2528,8 @@ function ConfigurationView({
               </Field>
               <Field className="flex-row items-center justify-between rounded-md border bg-muted/25 p-2">
                 <div>
-                  <FieldLabel>Cuenta como Tesis</FieldLabel>
-                  <FieldDescription>
-                    No consume cupo de cursos.
-                  </FieldDescription>
+                  <FieldLabel>{tCat("countsAsThesis")}</FieldLabel>
+                  <FieldDescription>{tCat("thesisNoQuota")}</FieldDescription>
                 </div>
                 <Switch checked={isThesis} onCheckedChange={setIsThesis} />
               </Field>
@@ -2390,7 +2539,7 @@ function ConfigurationView({
                 onClick={handleSubmit}
               >
                 <Plus data-icon="inline-start" />
-                Guardar curso
+                {tCat("saveCourse")}
               </Button>
             </div>
           </ScrollArea>
@@ -2401,10 +2550,10 @@ function ConfigurationView({
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
               <CardTitle className="truncate font-serif text-xl">
-                Configuración de catálogo
+                {tCat("catalogSettings")}
               </CardTitle>
               <CardDescription className="truncate">
-                Cursos activos disponibles para selección docente.
+                {tCat("activeCoursesDescription")}
               </CardDescription>
             </div>
             <Badge variant="secondary">
@@ -2413,9 +2562,9 @@ function ConfigurationView({
           </div>
           <div className="grid gap-1.5 md:grid-cols-[minmax(180px,1fr)_150px_190px]">
             <Input
-              aria-label="Buscar curso"
+              aria-label={tCat("searchCourse")}
               onChange={(event) => setCatalogQuery(event.target.value)}
-              placeholder="Buscar curso o escuela"
+              placeholder={tCat("searchCourseOrSchool")}
               size="sm"
               type="search"
               value={catalogQuery}
@@ -2427,17 +2576,17 @@ function ConfigurationView({
               }
             >
               <SelectTrigger className="w-full" size="sm">
-                <SelectValue placeholder="Estado" />
+                <SelectValue placeholder={tCat("status")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Estado</SelectLabel>
-                  <SelectItem value="all">Todo estado</SelectItem>
+                  <SelectLabel>{tCat("status")}</SelectLabel>
+                  <SelectItem value="all">{tCat("anyStatus")}</SelectItem>
                   <SelectItem value="active">
-                    Activos ({activeCount})
+                    {tCat("active")} ({activeCount})
                   </SelectItem>
                   <SelectItem value="suspended">
-                    Suspendidos ({inactiveCount})
+                    {tCat("suspended")} ({inactiveCount})
                   </SelectItem>
                 </SelectGroup>
               </SelectContent>
@@ -2447,12 +2596,12 @@ function ConfigurationView({
               onValueChange={setCatalogSchoolFilter}
             >
               <SelectTrigger className="w-full" size="sm">
-                <SelectValue placeholder="Escuela" />
+                <SelectValue placeholder={tCat("school")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Escuela</SelectLabel>
-                  <SelectItem value="all">Todas las escuelas</SelectItem>
+                  <SelectLabel>{tCat("school")}</SelectLabel>
+                  <SelectItem value="all">{tCat("allSchools")}</SelectItem>
                   {catalogSchools.map((schoolName) => (
                     <SelectItem key={schoolName} value={schoolName}>
                       {schoolName}
@@ -2490,6 +2639,8 @@ function CourseCatalogTable({
   onSetCourseActive: (courseId: string, active: boolean) => Promise<void>;
   saving: boolean;
 }) {
+  const tCat = useTranslations("catalog");
+  const _tMisc = useTranslations("misc");
   if (!catalog.length) {
     return (
       <Empty className="h-full py-10">
@@ -2498,18 +2649,18 @@ function CourseCatalogTable({
         </EmptyMedia>
         <EmptyHeader>
           <EmptyTitle>
-            {filtersActive ? "Sin coincidencias" : "Sin cursos configurados"}
+            {filtersActive ? tCat("noMatches") : tCat("noCoursesConfigured")}
           </EmptyTitle>
           <EmptyDescription>
             {filtersActive
-              ? "Ajusta búsqueda, estado o escuela para ver más cursos."
-              : "Agrega el primer curso institucional."}
+              ? tCat("adjustSearchStatusSchool")
+              : tCat("addFirstCourse")}
           </EmptyDescription>
         </EmptyHeader>
         {filtersActive ? (
           <EmptyContent>
             <Button onClick={clearFilters} size="sm" variant="outline">
-              Limpiar filtros
+              {tCat("clearFilters")}
             </Button>
           </EmptyContent>
         ) : null}
@@ -2522,11 +2673,15 @@ function CourseCatalogTable({
       <Table className="text-sm">
         <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow className="h-9">
-            <TableHead className="h-9 w-12 px-2">N°</TableHead>
-            <TableHead className="h-9 px-2">Curso</TableHead>
-            <TableHead className="h-9 px-2">Escuela Profesional</TableHead>
-            <TableHead className="h-9 w-28 px-2">Estado</TableHead>
-            <TableHead className="h-9 w-24 px-2 text-right">Activo</TableHead>
+            <TableHead className="h-9 w-12 px-2">{tCat("number")}</TableHead>
+            <TableHead className="h-9 px-2">{tCat("course")}</TableHead>
+            <TableHead className="h-9 px-2">
+              {tCat("professionalSchool")}
+            </TableHead>
+            <TableHead className="h-9 w-28 px-2">{tCat("status")}</TableHead>
+            <TableHead className="h-9 w-24 px-2 text-right">
+              {tCat("activeLabel")}
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -2540,11 +2695,11 @@ function CourseCatalogTable({
                 <TableCell className="px-2 py-1">
                   <div className="font-medium">{course.name}</div>
                   <div className="text-muted-foreground text-xs">
-                    {courseMeta(course)}
+                    {courseMeta(course, tCat)}
                   </div>
                   {course.isThesis ? (
                     <Badge variant="secondary" className="ml-2">
-                      Tesis
+                      {tCat("thesis")}
                     </Badge>
                   ) : null}
                 </TableCell>
@@ -2553,7 +2708,7 @@ function CourseCatalogTable({
                 </TableCell>
                 <TableCell className="px-2 py-1">
                   <Badge variant={active ? "default" : "secondary"}>
-                    {active ? "Activo" : "Suspendido"}
+                    {active ? tCat("activeLabel") : tCat("suspendedLabel")}
                   </Badge>
                 </TableCell>
                 <TableCell className="px-2 py-1 text-right">
@@ -2591,6 +2746,10 @@ function UsersAccessView({
   saving: boolean;
   users: ScheduleUser[];
 }) {
+  const tUsers = useTranslations("users");
+  const tMisc = useTranslations("misc");
+  const tStatus = useTranslations("status");
+  const _tRoutes = useTranslations("routes");
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRoleFilter>("all");
   const [onboardingFilter, setOnboardingFilter] =
@@ -2605,6 +2764,9 @@ function UsersAccessView({
     onboardingFilter,
     query,
     roleFilter,
+    t: tStatus,
+    tRole: tMisc,
+    tUsers,
   });
   const filtersActive =
     query.trim().length > 0 ||
@@ -2623,10 +2785,10 @@ function UsersAccessView({
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
               <CardTitle className="truncate font-serif text-xl">
-                Usuarios institucionales
+                {tUsers("institutionalUsers")}
               </CardTitle>
               <CardDescription className="truncate">
-                Roles, departamentos, padrón docente e ingreso real.
+                {tUsers("facultyCount")}
               </CardDescription>
             </div>
             <Badge variant="secondary">
@@ -2635,9 +2797,9 @@ function UsersAccessView({
           </div>
           <div className="grid gap-1.5 md:grid-cols-[minmax(180px,1fr)_160px_160px]">
             <Input
-              aria-label="Buscar usuario"
+              aria-label={tUsers("searchUser")}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar nombre o correo"
+              placeholder={tUsers("searchNameOrEmail")}
               size="sm"
               type="search"
               value={query}
@@ -2647,15 +2809,17 @@ function UsersAccessView({
               onValueChange={(value) => setRoleFilter(value as UserRoleFilter)}
             >
               <SelectTrigger className="w-full" size="sm">
-                <SelectValue placeholder="Rol" />
+                <SelectValue placeholder={tUsers("role")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Rol</SelectLabel>
-                  <SelectItem value="all">Todos los roles</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="direccion">Dirección</SelectItem>
-                  <SelectItem value="docente">Docente</SelectItem>
+                  <SelectLabel>{tUsers("role")}</SelectLabel>
+                  <SelectItem value="all">{tUsers("allRoles")}</SelectItem>
+                  <SelectItem value="admin">{tUsers("admin")}</SelectItem>
+                  <SelectItem value="direccion">
+                    {tUsers("direction")}
+                  </SelectItem>
+                  <SelectItem value="docente">{tUsers("faculty")}</SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -2666,14 +2830,16 @@ function UsersAccessView({
               }
             >
               <SelectTrigger className="w-full" size="sm">
-                <SelectValue placeholder="Ingreso" />
+                <SelectValue placeholder={tUsers("accessLabel")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Ingreso</SelectLabel>
-                  <SelectItem value="all">Todo ingreso</SelectItem>
-                  <SelectItem value="complete">Ya ingresó</SelectItem>
-                  <SelectItem value="pending">Sin ingreso</SelectItem>
+                  <SelectLabel>{tUsers("accessLabel")}</SelectLabel>
+                  <SelectItem value="all">{tUsers("anyAccess")}</SelectItem>
+                  <SelectItem value="complete">
+                    {tUsers("hasSignedIn")}
+                  </SelectItem>
+                  <SelectItem value="pending">{tUsers("noSignIn")}</SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -2696,22 +2862,27 @@ function UsersAccessView({
           <CardHeader className="border-b px-2.5 py-1.5">
             <CardTitle className="flex items-center gap-2 text-base">
               <ShieldCheck className="size-4 text-availability" />
-              Acceso
+              {tUsers("access")}
             </CardTitle>
-            <CardDescription>Resumen operativo.</CardDescription>
+            <CardDescription>{tMisc("operationalSummary")}</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-3 gap-2 px-2.5 py-2">
-            <StatusMetric label="Admin" value={String(adminCount)} />
-            <StatusMetric label="Dirección" value={String(directionCount)} />
-            <StatusMetric label="Docentes" value={String(teacherCount)} />
+            <StatusMetric label={tUsers("admin")} value={String(adminCount)} />
+            <StatusMetric
+              label={tUsers("direction")}
+              value={String(directionCount)}
+            />
+            <StatusMetric
+              label={tUsers("faculty")}
+              value={String(teacherCount)}
+            />
           </CardContent>
         </Card>
         <Alert variant={adminCount > 0 ? "default" : "warning"}>
           <Info />
-          <AlertTitle>Regla de seguridad</AlertTitle>
+          <AlertTitle>{tMisc("securityRule")}</AlertTitle>
           <AlertDescription>
-            El sistema mantiene al menos un usuario Admin. Sin ingreso:{" "}
-            {pendingAccess}.
+            {tUsers("keepOneAdmin")} {pendingAccess}.
           </AlertDescription>
         </Alert>
       </aside>
@@ -2740,6 +2911,11 @@ function UsersAccessTable({
   saving: boolean;
   users: ScheduleUser[];
 }) {
+  const locale = useLocale();
+  const tUsers = useTranslations("users");
+  const tMisc = useTranslations("misc");
+  const tStatus = useTranslations("status");
+  const tCat = useTranslations("catalog");
   if (!users.length) {
     return (
       <Empty className="h-full py-10">
@@ -2748,18 +2924,18 @@ function UsersAccessTable({
         </EmptyMedia>
         <EmptyHeader>
           <EmptyTitle>
-            {filtersActive ? "Sin coincidencias" : "Sin usuarios"}
+            {filtersActive ? tMisc("noMatches") : tUsers("noUsers")}
           </EmptyTitle>
           <EmptyDescription>
             {filtersActive
-              ? "Ajusta búsqueda, rol o ingreso para ver más usuarios."
-              : "Los usuarios aparecerán después de iniciar sesión."}
+              ? tUsers("adjustSearchRoleAccess")
+              : tUsers("usersAppearAfterSignIn")}
           </EmptyDescription>
         </EmptyHeader>
         {filtersActive ? (
           <EmptyContent>
             <Button onClick={clearFilters} size="sm" variant="outline">
-              Limpiar filtros
+              {tCat("clearFilters")}
             </Button>
           </EmptyContent>
         ) : null}
@@ -2772,14 +2948,18 @@ function UsersAccessTable({
       <Table className="min-w-[1180px] text-sm">
         <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow className="h-9">
-            <TableHead className="h-9 min-w-[250px] px-2">Usuario</TableHead>
-            <TableHead className="h-9 w-52 px-2">Padrón</TableHead>
-            <TableHead className="h-9 w-40 px-2">Rol</TableHead>
-            <TableHead className="h-9 w-56 px-2">Departamento</TableHead>
-            <TableHead className="h-9 w-36 px-2">Ingreso</TableHead>
-            <TableHead className="h-9 w-32 px-2">Horario</TableHead>
+            <TableHead className="h-9 min-w-[250px] px-2">
+              {tMisc("user")}
+            </TableHead>
+            <TableHead className="h-9 w-52 px-2">{tMisc("roster")}</TableHead>
+            <TableHead className="h-9 w-40 px-2">{tUsers("role")}</TableHead>
+            <TableHead className="h-9 w-56 px-2">
+              {tMisc("periodLabel")}
+            </TableHead>
+            <TableHead className="h-9 w-36 px-2">{tUsers("access")}</TableHead>
+            <TableHead className="h-9 w-32 px-2">{tMisc("schedule")}</TableHead>
             <TableHead className="h-9 w-36 px-2 text-right">
-              Actualizado
+              {tMisc("updated")}
             </TableHead>
           </TableRow>
         </TableHeader>
@@ -2801,7 +2981,7 @@ function UsersAccessTable({
                         {user.name}
                         {isSelf ? (
                           <Badge variant="secondary" className="ml-2">
-                            Tú
+                            {tMisc("you")}
                           </Badge>
                         ) : null}
                       </div>
@@ -2814,13 +2994,13 @@ function UsersAccessTable({
                 <TableCell className="px-2 py-1">
                   <div className="min-w-0">
                     <div className="truncate font-medium tabular-nums">
-                      {user.teacherCode ?? "Sin código"}
+                      {user.teacherCode ?? tMisc("noCode")}
                     </div>
                     <div className="truncate text-muted-foreground text-xs">
-                      {user.teacherCategory ?? "Sin categoría"}
+                      {user.teacherCategory ?? tMisc("noCategory")}
                     </div>
                     <div className="truncate text-muted-foreground text-xs">
-                      {user.academicDegree ?? "Sin grado académico"}
+                      {user.academicDegree ?? tMisc("noAcademicDegree")}
                     </div>
                   </div>
                 </TableCell>
@@ -2841,10 +3021,14 @@ function UsersAccessTable({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectLabel>Rol</SelectLabel>
-                        <SelectItem value="admin">Admin</SelectItem>
-                        <SelectItem value="docente">Docente</SelectItem>
-                        <SelectItem value="direccion">Dirección</SelectItem>
+                        <SelectLabel>{tUsers("role")}</SelectLabel>
+                        <SelectItem value="admin">{tUsers("admin")}</SelectItem>
+                        <SelectItem value="docente">
+                          {tUsers("faculty")}
+                        </SelectItem>
+                        <SelectItem value="direccion">
+                          {tUsers("direction")}
+                        </SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -2862,7 +3046,7 @@ function UsersAccessTable({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectLabel>Departamento</SelectLabel>
+                        <SelectLabel>{tMisc("periodLabel")}</SelectLabel>
                         {departmentOptions.map((department) => (
                           <SelectItem key={department} value={department}>
                             {department}
@@ -2876,12 +3060,14 @@ function UsersAccessTable({
                   <Badge
                     variant={user.onboardingComplete ? "default" : "secondary"}
                   >
-                    {user.onboardingComplete ? "Ingresó" : "Sin ingreso"}
+                    {user.onboardingComplete
+                      ? tUsers("hasSignedIn")
+                      : tUsers("noSignIn")}
                   </Badge>
                   <div className="mt-0.5 text-muted-foreground text-xs tabular-nums">
                     {user.lastSeenAt
-                      ? formatEventDate(user.lastSeenAt)
-                      : "Nunca"}
+                      ? formatEventDate(user.lastSeenAt, locale)
+                      : tMisc("never")}
                   </div>
                 </TableCell>
                 <TableCell className="px-2 py-1">
@@ -2894,14 +3080,16 @@ function UsersAccessTable({
                           : "secondary"
                       }
                     >
-                      {statusLabel(user.teacherStatus)}
+                      {statusLabel(user.teacherStatus, tStatus)}
                     </Badge>
                   ) : (
-                    <span className="text-muted-foreground">No aplica</span>
+                    <span className="text-muted-foreground">
+                      {tMisc("notApplicable")}
+                    </span>
                   )}
                 </TableCell>
                 <TableCell className="px-2 py-1 text-right text-muted-foreground text-xs tabular-nums">
-                  {formatEventDate(user.updatedAt)}
+                  {formatEventDate(user.updatedAt, locale)}
                 </TableCell>
               </TableRow>
             );
@@ -2913,6 +3101,9 @@ function UsersAccessTable({
 }
 
 function AuditView({ events }: { events: ScheduleEvent[] }) {
+  const locale = useLocale();
+  const t = useTranslations("audit");
+  const tEvents = useTranslations("events");
   const [query, setQuery] = useState("");
   const [eventType, setEventType] = useState("all");
   const eventTypes = useMemo(
@@ -2934,16 +3125,16 @@ function AuditView({ events }: { events: ScheduleEvent[] }) {
         return [
           event.actorName,
           event.teacherId,
-          eventLabel(event.eventType),
+          eventLabel(event.eventType, tEvents),
           event.eventType,
-          eventSummary(event),
+          eventSummary(event, tEvents),
           JSON.stringify(event.metadata),
         ]
           .join(" ")
           .toLowerCase()
           .includes(normalizedQuery);
       }),
-    [eventType, events, query],
+    [eventType, events, query, tEvents],
   );
 
   return (
@@ -2952,30 +3143,30 @@ function AuditView({ events }: { events: ScheduleEvent[] }) {
         <CardHeader className="flex shrink-0 flex-col gap-1.5 border-b lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <CardTitle className="truncate font-serif text-xl">
-              Auditoría institucional
+              {t("institutionalAudit")}
             </CardTitle>
             <CardDescription className="truncate">
-              Historial institucional.
+              {t("institutionalHistory")}
             </CardDescription>
           </div>
           <div className="grid w-full shrink-0 gap-2 md:grid-cols-[220px_220px_auto] lg:w-auto">
             <Input
-              aria-label="Buscar auditoría"
+              aria-label={t("searchAudit")}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar auditoría"
+              placeholder={t("searchAudit")}
               value={query}
             />
             <Select value={eventType} onValueChange={setEventType}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Tipo de evento" />
+                <SelectValue placeholder={t("eventType")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Tipo de evento</SelectLabel>
-                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectLabel>{t("eventType")}</SelectLabel>
+                  <SelectItem value="all">{t("all")}</SelectItem>
                   {eventTypes.map((type) => (
                     <SelectItem key={type} value={type}>
-                      {eventLabel(type)}
+                      {eventLabel(type, tEvents)}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -2983,7 +3174,7 @@ function AuditView({ events }: { events: ScheduleEvent[] }) {
             </Select>
             <Button
               disabled={!filteredEvents.length}
-              onClick={() => exportAuditCsv(filteredEvents)}
+              onClick={() => exportAuditCsv(filteredEvents, locale, t, tEvents)}
               variant="outline"
             >
               <ArrowDownToLine data-icon="inline-start" />
@@ -3000,10 +3191,8 @@ function AuditView({ events }: { events: ScheduleEvent[] }) {
                 <History />
               </EmptyMedia>
               <EmptyHeader>
-                <EmptyTitle>Sin eventos</EmptyTitle>
-                <EmptyDescription>
-                  Ajusta búsqueda o tipo de evento.
-                </EmptyDescription>
+                <EmptyTitle>{t("noEvents")}</EmptyTitle>
+                <EmptyDescription>{t("adjustSearchOrType")}</EmptyDescription>
               </EmptyHeader>
             </Empty>
           )}
@@ -3014,28 +3203,42 @@ function AuditView({ events }: { events: ScheduleEvent[] }) {
 }
 
 function AuditEventsTable({ events }: { events: ScheduleEvent[] }) {
+  const locale = useLocale();
+  const t = useTranslations("audit");
+  const tEvents = useTranslations("events");
+  const tMisc = useTranslations("misc");
   return (
     <ScrollArea scrollbarGutter>
       <Table className="text-sm">
         <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow className="h-9">
-            <TableHead className="h-9 min-w-[180px] px-2">Fecha</TableHead>
-            <TableHead className="h-9 min-w-[220px] px-2">Evento</TableHead>
-            <TableHead className="h-9 min-w-[180px] px-2">Actor</TableHead>
-            <TableHead className="h-9 min-w-[180px] px-2">Referencia</TableHead>
-            <TableHead className="h-9 px-2">Detalle</TableHead>
+            <TableHead className="h-9 min-w-[180px] px-2">
+              {t("date")}
+            </TableHead>
+            <TableHead className="h-9 min-w-[220px] px-2">
+              {t("event")}
+            </TableHead>
+            <TableHead className="h-9 min-w-[180px] px-2">
+              {t("actor")}
+            </TableHead>
+            <TableHead className="h-9 min-w-[180px] px-2">
+              {t("reference")}
+            </TableHead>
+            <TableHead className="h-9 px-2">{t("detail")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {events.map((event) => (
             <TableRow className="h-11" key={event.id}>
               <TableCell className="px-2 py-1 text-muted-foreground text-xs tabular-nums">
-                {formatEventDate(event.createdAt)}
+                {formatEventDate(event.createdAt, locale)}
               </TableCell>
               <TableCell className="px-2 py-1">
-                <div className="font-medium">{eventLabel(event.eventType)}</div>
+                <div className="font-medium">
+                  {eventLabel(event.eventType, tEvents)}
+                </div>
                 <div className="text-muted-foreground text-xs">
-                  {eventScopeLabel(event.eventType)}
+                  {eventScopeLabel(event.eventType, tEvents)}
                 </div>
               </TableCell>
               <TableCell className="px-2 py-1">{event.actorName}</TableCell>
@@ -3043,7 +3246,7 @@ function AuditEventsTable({ events }: { events: ScheduleEvent[] }) {
                 {event.teacherId}
               </TableCell>
               <TableCell className="px-2 py-1 text-muted-foreground">
-                {eventSummary(event) || "Sin detalle"}
+                {eventSummary(event, t) || tMisc("notApplicable")}
               </TableCell>
             </TableRow>
           ))}
@@ -3066,7 +3269,13 @@ function TeacherStatusPanel({
   saving?: boolean;
   validation: Validation;
 }) {
+  const tTeacher = useTranslations("teacher");
+  const tReview = useTranslations("review");
+  const tMisc = useTranslations("misc");
+  const tRules = useTranslations("ruleMessages");
   const rule = contractRules[profile.contract];
+  const courseLabel =
+    rule.maxCourses === 1 ? tRules("courseSingular") : tRules("coursePlural");
   return (
     <Card className="overflow-hidden">
       <CardHeader className="border-b px-2.5 py-1.5">
@@ -3078,15 +3287,19 @@ function TeacherStatusPanel({
               ) : (
                 <AlertCircle className="size-4 text-gold" />
               )}
-              Cierre docente
+              {tTeacher("submission")}
             </CardTitle>
             <CardDescription className="hidden sm:block">
-              {rule.requiredHours} h · {rule.requiredBlockDays} bloques ·{" "}
-              {rule.maxCourses} cursos
+              {tRules("shortSummary", {
+                courseLabel,
+                days: rule.requiredBlockDays,
+                hours: rule.requiredHours,
+                maxCourses: rule.maxCourses,
+              })}
             </CardDescription>
           </div>
           <Badge variant={validation.complete ? "default" : "secondary"}>
-            {validation.complete ? "Listo" : "Pendiente"}
+            {validation.complete ? tReview("ready") : tReview("pending")}
           </Badge>
         </div>
       </CardHeader>
@@ -3094,31 +3307,31 @@ function TeacherStatusPanel({
         {profile.reviewNote ? (
           <Alert variant="warning" className="p-2.5">
             <AlertCircle />
-            <AlertTitle>Observación de Dirección</AlertTitle>
+            <AlertTitle>{tTeacher("submission")}</AlertTitle>
             <AlertDescription>{profile.reviewNote}</AlertDescription>
           </Alert>
         ) : null}
         <div className="grid grid-cols-3 gap-2">
           <StatusMetric
-            label="Horas"
+            label={tTeacher("hours")}
             value={`${validation.selectedHours}/${rule.requiredHours}`}
           />
           <StatusMetric
-            label="Días válidos"
+            label={tTeacher("validDays")}
             value={`${validation.blockDays}/${rule.requiredBlockDays}`}
           />
           <StatusMetric
-            label="Cursos"
+            label={tTeacher("courses")}
             value={`${validation.countedCourses}/${rule.maxCourses}`}
           />
         </div>
         <div className="flex items-center justify-between gap-3">
           <span className="min-w-0 truncate text-muted-foreground">
             {profile.approvedAt
-              ? `Aprobado: ${profile.approvedAt}`
+              ? `${tReview("ready")}: ${profile.approvedAt}`
               : profile.submittedAt
-                ? `Último envío: ${profile.submittedAt}`
-                : "Sin envío registrado"}
+                ? `${tTeacher("submission")}: ${profile.submittedAt}`
+                : tMisc("notApplicable")}
           </span>
           <Button
             size="sm"
@@ -3126,7 +3339,7 @@ function TeacherStatusPanel({
             loading={saving}
             onClick={onSubmit}
           >
-            Enviar
+            {tTeacher("submit")}
           </Button>
         </div>
       </CardContent>
@@ -3212,6 +3425,12 @@ function DirectorView({
   totalTeacherCount: number;
   validation: Validation;
 }) {
+  const tDir = useTranslations("direction");
+  const _tTeacher = useTranslations("teacher");
+  const tStatus = useTranslations("status");
+  const tMisc = useTranslations("misc");
+  const tContracts = useTranslations("contracts");
+  const tCat = useTranslations("catalog");
   const teacherFiltersActive =
     showOnlyPending ||
     teacherStatusFilter !== "all" ||
@@ -3225,10 +3444,10 @@ function DirectorView({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <CardTitle className="truncate text-base">
-                Lista de docentes
+                {tDir("facultyList")}
               </CardTitle>
               <CardDescription className="truncate">
-                Revisión administrativa.
+                {tMisc("operationalSummary")}
               </CardDescription>
             </div>
             <Badge variant="secondary">
@@ -3237,9 +3456,9 @@ function DirectorView({
           </div>
           <div className="grid gap-1">
             <Input
-              aria-label="Buscar docente"
+              aria-label={tDir("searchFaculty")}
               onChange={(event) => setTeacherQuery(event.target.value)}
-              placeholder="Buscar docente o correo"
+              placeholder={tDir("searchFacultyOrEmail")}
               size="sm"
               type="search"
               value={teacherQuery}
@@ -3251,16 +3470,22 @@ function DirectorView({
               }
             >
               <SelectTrigger className="w-full" size="sm">
-                <SelectValue placeholder="Estado" />
+                <SelectValue placeholder={tMisc("periodLabel")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Estado</SelectLabel>
-                  <SelectItem value="all">Todos los estados</SelectItem>
-                  <SelectItem value="borrador">Borrador</SelectItem>
-                  <SelectItem value="enviado">Enviado</SelectItem>
-                  <SelectItem value="observado">Observado</SelectItem>
-                  <SelectItem value="aprobado">Aprobado</SelectItem>
+                  <SelectLabel>{tMisc("periodLabel")}</SelectLabel>
+                  <SelectItem value="all">{tDir("allStatuses")}</SelectItem>
+                  <SelectItem value="borrador">{tStatus("draft")}</SelectItem>
+                  <SelectItem value="enviado">
+                    {tStatus("submitted")}
+                  </SelectItem>
+                  <SelectItem value="observado">
+                    {tStatus("observed")}
+                  </SelectItem>
+                  <SelectItem value="aprobado">
+                    {tStatus("approved")}
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -3272,8 +3497,8 @@ function DirectorView({
           <DirectorOperationsSnapshot events={events} teachers={teachers} />
           <Field className="flex-row items-center justify-between gap-2 rounded-md bg-muted/25 px-2 py-0.5">
             <div>
-              <FieldLabel className="text-xs">Solo pendientes</FieldLabel>
-              <FieldDescription>Oculta aprobados.</FieldDescription>
+              <FieldLabel className="text-xs">{tDir("pendingOnly")}</FieldLabel>
+              <FieldDescription>{tDir("hidesApproved")}</FieldDescription>
             </div>
             <Switch
               checked={showOnlyPending}
@@ -3302,13 +3527,13 @@ function DirectorView({
                   <EmptyHeader>
                     <EmptyTitle>
                       {teacherFiltersActive
-                        ? "Sin coincidencias"
-                        : "Sin docentes pendientes"}
+                        ? tDir("noVisibleFaculty")
+                        : tDir("noPendingFaculty")}
                     </EmptyTitle>
                     <EmptyDescription>
                       {teacherFiltersActive
-                        ? "Ajusta búsqueda o estado para revisar más docentes."
-                        : "Desactiva el filtro para revisar enviados."}
+                        ? tDir("adjustSearchOrStatus")
+                        : tDir("disableFilterHint")}
                     </EmptyDescription>
                   </EmptyHeader>
                   {teacherFiltersActive ? (
@@ -3322,7 +3547,7 @@ function DirectorView({
                         size="sm"
                         variant="outline"
                       >
-                        Limpiar filtros
+                        {tCat("clearFilters")}
                       </Button>
                     </EmptyContent>
                   ) : null}
@@ -3342,13 +3567,13 @@ function DirectorView({
               <EmptyHeader>
                 <EmptyTitle>
                   {teacherFiltersActive
-                    ? "Sin docente visible"
-                    : "Sin docentes para revisar"}
+                    ? tDir("noVisibleFaculty")
+                    : tDir("noFacultyToReview")}
                 </EmptyTitle>
                 <EmptyDescription>
                   {teacherFiltersActive
-                    ? "Limpia o ajusta filtros para abrir un horario."
-                    : "Los docentes aparecerán después de completar su acceso."}
+                    ? tDir("clearOrAdjustFilters")
+                    : tDir("facultyAppearAfterAccess")}
                 </EmptyDescription>
               </EmptyHeader>
               {teacherFiltersActive ? (
@@ -3361,7 +3586,7 @@ function DirectorView({
                     }}
                     variant="outline"
                   >
-                    Limpiar filtros
+                    {tCat("clearFilters")}
                   </Button>
                 </EmptyContent>
               ) : null}
@@ -3375,7 +3600,12 @@ function DirectorView({
                   {selectedTeacher.name}
                 </CardTitle>
                 <CardDescription className="truncate">
-                  {teacherProfileSummary(selectedTeacher)}
+                  {teacherProfileSummary(
+                    selectedTeacher,
+                    tContracts,
+                    tStatus,
+                    tMisc,
+                  )}
                 </CardDescription>
               </div>
               <Toolbar className="shrink-0 border-0 bg-transparent p-0 shadow-none">
@@ -3387,13 +3617,13 @@ function DirectorView({
                       }
                     >
                       <BookOpen data-icon="inline-start" />
-                      Detalle
+                      {tMisc("updated")}
                     </SheetTrigger>
                     <SheetContent side="right">
                       <SheetHeader>
                         <SheetTitle>{selectedTeacher.name}</SheetTitle>
                         <SheetDescription>
-                          Cursos y reglas del docente seleccionado.
+                          {tDir("coursesAndRules")}
                         </SheetDescription>
                       </SheetHeader>
                       <SheetPanel className="min-h-0 p-3">
@@ -3428,7 +3658,7 @@ function DirectorView({
                     }
                   >
                     <Files data-icon="inline-start" />
-                    PDF todos
+                    {tDir("allPdfs")}
                   </ToolbarButton>
                   <ToolbarButton
                     onClick={handleExportPdf}
@@ -3439,7 +3669,7 @@ function DirectorView({
                   </ToolbarButton>
                   <ToolbarButton onClick={handleExportXlsx} render={<Button />}>
                     <FileSpreadsheet data-icon="inline-start" />
-                    Excel
+                    {tDir("excel")}
                   </ToolbarButton>
                 </ToolbarGroup>
               </Toolbar>
@@ -3447,8 +3677,8 @@ function DirectorView({
             <CardContent className="min-h-0 flex-1 p-0">
               <ScheduleBoard
                 availability={selectedTeacher.availability}
-                emptyDescription="El docente aún no marcó bloques horarios."
-                emptyLabel="Sin disponibilidad registrada"
+                emptyDescription={tDir("facultyNotMarkedBlocks")}
+                emptyLabel={tDir("noAvailabilityRecorded")}
               />
             </CardContent>
           </Card>
@@ -3484,15 +3714,24 @@ function TeacherQueueMetrics({
   counts: TeacherStatusCounts;
   totalTeacherCount: number;
 }) {
+  const tStatus = useTranslations("status");
   const rows: Array<{
     label: string;
     value: number;
     tone: "default" | "secondary";
   }> = [
-    { label: "Borrador", value: counts.borrador, tone: "secondary" },
-    { label: "Enviado", value: counts.enviado, tone: "default" },
-    { label: "Obs.", value: counts.observado, tone: "secondary" },
-    { label: "Aprob.", value: counts.aprobado, tone: "default" },
+    { label: tStatus("draft"), value: counts.borrador, tone: "secondary" },
+    { label: tStatus("submitted"), value: counts.enviado, tone: "default" },
+    {
+      label: `${tStatus("observed").slice(0, 4)}.`,
+      value: counts.observado,
+      tone: "secondary",
+    },
+    {
+      label: `${tStatus("approved").slice(0, 5)}.`,
+      value: counts.aprobado,
+      tone: "default",
+    },
   ];
   return (
     <div className="hidden grid-cols-2 gap-1 md:grid">
@@ -3528,6 +3767,9 @@ function DirectorOperationsSnapshot({
   events: ScheduleEvent[];
   teachers: TeacherProfile[];
 }) {
+  const tDir = useTranslations("direction");
+  const tMisc = useTranslations("misc");
+  const tTeacher = useTranslations("teacher");
   const totalTeachers = teachers.length;
   const teachersWithCourses = teachers.filter(
     (teacher) => teacher.courses.length > 0,
@@ -3541,21 +3783,20 @@ function DirectorOperationsSnapshot({
   );
   const rows = [
     {
-      label: "Carga",
+      label: tDir("csvLoad"),
       value: `${teachersWithCourses}/${totalTeachers}`,
-      detail: `${assignedCourses} cursos`,
+      detail: `${assignedCourses} ${tTeacher("courses").toLowerCase()}`,
       warning: assignedCourses === 0,
     },
     {
-      label: "Horarios",
+      label: tMisc("schedule"),
       value: `${teachersWithAvailability}/${totalTeachers}`,
-      detail: "recibidos",
       warning: teachersWithAvailability === 0,
     },
     {
-      label: "Eventos",
+      label: tDir("eventsLabel"),
       value: String(events.length),
-      detail: "auditados",
+      detail: tDir("audited"),
       warning: events.length === 0,
     },
   ];
@@ -3620,12 +3861,13 @@ function DirectorDetailTabs({
   schools: string[];
   validation: Validation;
 }) {
+  const tDir = useTranslations("direction");
   return (
     <Tabs defaultValue="revision" className="h-full min-h-0 w-full">
       <TabsList className="grid w-full grid-cols-3">
-        <TabsTrigger value="revision">Revisión</TabsTrigger>
-        <TabsTrigger value="cursos">Cursos</TabsTrigger>
-        <TabsTrigger value="auditoria">Auditoría</TabsTrigger>
+        <TabsTrigger value="revision">{tDir("tabRevision")}</TabsTrigger>
+        <TabsTrigger value="cursos">{tDir("tabCourses")}</TabsTrigger>
+        <TabsTrigger value="auditoria">{tDir("tabAudit")}</TabsTrigger>
       </TabsList>
       <TabsContent
         value="revision"
@@ -3684,6 +3926,10 @@ function CoursesReviewCard({
   schools: string[];
   teacher: TeacherProfile;
 }) {
+  const tDir = useTranslations("direction");
+  const tTeacher = useTranslations("teacher");
+  const tCatalog = useTranslations("catalog");
+  const tContracts = useTranslations("contracts");
   const catalogSchools = useMemo(
     () =>
       Array.from(
@@ -3706,12 +3952,12 @@ function CoursesReviewCard({
   const assignment = courseAssignmentState(teacher, selectedCourse);
   const assignDisabled = disabled || saving || !assignment.canAssign;
   const assignLabel = disabled
-    ? "Cerrado"
+    ? tTeacher("closed")
     : assignment.alreadyAssigned
-      ? "Asignado"
+      ? tTeacher("assigned")
       : assignment.limitReached
-        ? "Cupo lleno"
-        : "Asignar";
+        ? tTeacher("quotaFull")
+        : tTeacher("assign");
 
   useEffect(() => {
     setSchool(defaultSchool);
@@ -3735,10 +3981,8 @@ function CoursesReviewCard({
   return (
     <Card className="min-h-0 overflow-hidden">
       <CardHeader className="shrink-0 border-b px-3 py-1.5">
-        <CardTitle className="text-base">Cursos del docente</CardTitle>
-        <CardDescription>
-          Asignación administrativa de carga docente.
-        </CardDescription>
+        <CardTitle className="text-base">{tDir("facultyCourses")}</CardTitle>
+        <CardDescription>{tDir("administrativeLoad")}</CardDescription>
       </CardHeader>
       <CardContent className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2 px-2 py-2">
         <div className="grid gap-1.5">
@@ -3748,11 +3992,11 @@ function CoursesReviewCard({
             onValueChange={setSchool}
           >
             <SelectTrigger className="w-full" size="sm">
-              <SelectValue placeholder="Escuela" />
+              <SelectValue placeholder={tTeacher("schoolLabel")} />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectLabel>Escuela profesional</SelectLabel>
+                <SelectLabel>{tDir("professionalSchool")}</SelectLabel>
                 {catalogSchools.map((item) => (
                   <SelectItem key={item} value={item}>
                     {item}
@@ -3768,11 +4012,11 @@ function CoursesReviewCard({
               onValueChange={setCourseId}
             >
               <SelectTrigger className="w-full" size="sm">
-                <SelectValue placeholder="Curso" />
+                <SelectValue placeholder={tTeacher("courseLabel")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Curso</SelectLabel>
+                  <SelectLabel>{tCatalog("course")}</SelectLabel>
                   {visibleCatalog.map((course) => (
                     <SelectItem key={course.id} value={course.id}>
                       {courseLabel(course)}
@@ -3793,16 +4037,21 @@ function CoursesReviewCard({
           </div>
           {assignment.limitReached ? (
             <p className="text-muted-foreground text-xs">
-              {contractRules[teacher.contract].label}: máximo{" "}
-              {contractRules[teacher.contract].maxCourses} cursos no Tesis.
+              {tContracts(
+                contractRules[teacher.contract].label.slice(
+                  "contracts.".length,
+                ),
+              )}
+              : {contractRules[teacher.contract].maxCourses}{" "}
+              {tDir("nonThesisCourses")}
             </p>
           ) : null}
         </div>
         <div className="h-[clamp(160px,34vh,320px)] min-h-0 overflow-hidden rounded-md border bg-muted/20">
           <CourseCardsList
             courses={teacher.courses}
-            emptyDescription="Asigna cursos desde el catálogo activo."
-            emptyTitle="Sin cursos asignados"
+            emptyDescription={tDir("assignFromCatalog")}
+            emptyTitle={tDir("noAssignedCourses")}
             onRemoveCourse={
               disabled
                 ? undefined
@@ -3835,6 +4084,7 @@ function DirectorReviewCard({
   setReviewNote: (note: string) => void;
   validation: Validation;
 }) {
+  const tDir = useTranslations("direction");
   const canApprove =
     !periodClosed &&
     selectedTeacher.status === "enviado" &&
@@ -3844,30 +4094,28 @@ function DirectorReviewCard({
   return (
     <Card className="overflow-hidden">
       <CardHeader className="border-b px-3 py-1.5">
-        <CardTitle className="text-base">Decisión de revisión</CardTitle>
-        <CardDescription>
-          Aprueba el horario o devuélvelo con una nota accionable.
-        </CardDescription>
+        <CardTitle className="text-base">{tDir("decision")}</CardTitle>
+        <CardDescription>{tDir("approveOrReturn")}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-2 px-3 py-2">
         {selectedTeacher.approvedAt ? (
           <Alert variant="success" className="p-2.5">
             <ShieldCheck />
-            <AlertTitle>Horario aprobado</AlertTitle>
+            <AlertTitle>{tDir("approvedSchedule")}</AlertTitle>
             <AlertDescription>{selectedTeacher.approvedAt}</AlertDescription>
           </Alert>
         ) : null}
         {selectedTeacher.reviewNote ? (
           <Alert variant="warning" className="p-2.5">
             <AlertCircle />
-            <AlertTitle>Observación vigente</AlertTitle>
+            <AlertTitle>{tDir("currentObservation")}</AlertTitle>
             <AlertDescription>{selectedTeacher.reviewNote}</AlertDescription>
           </Alert>
         ) : null}
         <Textarea
-          aria-label="Observación para el docente"
+          aria-label={tDir("observationForFaculty")}
           onChange={(event) => setReviewNote(event.target.value)}
-          placeholder="Ej. Ajustar viernes 14:00 - 18:00 por cruce con aula asignada."
+          placeholder={tDir("observationPlaceholder")}
           size="sm"
           disabled={periodClosed}
           value={reviewNote}
@@ -3879,14 +4127,14 @@ function DirectorReviewCard({
             onClick={onObserveTeacher}
             variant="outline"
           >
-            Observar
+            {tDir("observe")}
           </Button>
           <Button
             disabled={!canApprove}
             loading={saving}
             onClick={onApproveTeacher}
           >
-            Aprobar
+            {tDir("approve")}
           </Button>
         </div>
       </CardContent>
@@ -3895,14 +4143,17 @@ function DirectorReviewCard({
 }
 
 function AuditTrailCard({ events }: { events: ScheduleEvent[] }) {
+  const locale = useLocale();
+  const t = useTranslations("audit");
+  const tEvents = useTranslations("events");
   return (
     <Card className="min-h-0 overflow-hidden">
       <CardHeader className="border-b px-3 py-1.5">
         <CardTitle className="flex items-center gap-2 text-base">
           <History className="size-4 text-gold" />
-          Auditoría
+          {t("institutionalAudit")}
         </CardTitle>
-        <CardDescription>Últimos cambios registrados.</CardDescription>
+        <CardDescription>{t("institutionalHistory")}</CardDescription>
       </CardHeader>
       <CardContent className="min-h-0 flex-1 p-0">
         {events.length ? (
@@ -3915,15 +4166,17 @@ function AuditTrailCard({ events }: { events: ScheduleEvent[] }) {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">
-                      {eventLabel(event.eventType)}
+                      {eventLabel(event.eventType, tEvents)}
                     </span>
                     <span className="shrink-0 text-muted-foreground tabular-nums">
-                      {formatEventDate(event.createdAt)}
+                      {formatEventDate(event.createdAt, locale)}
                     </span>
                   </div>
                   <div className="mt-1 text-muted-foreground">
                     {event.actorName}
-                    {eventSummary(event) ? ` · ${eventSummary(event)}` : ""}
+                    {eventSummary(event, tEvents)
+                      ? ` · ${eventSummary(event, tEvents)}`
+                      : ""}
                   </div>
                 </div>
               ))}
@@ -3935,10 +4188,8 @@ function AuditTrailCard({ events }: { events: ScheduleEvent[] }) {
               <History />
             </EmptyMedia>
             <EmptyHeader>
-              <EmptyTitle>Sin actividad</EmptyTitle>
-              <EmptyDescription>
-                Los cambios del docente aparecerán aquí.
-              </EmptyDescription>
+              <EmptyTitle>{t("noEvents")}</EmptyTitle>
+              <EmptyDescription>{t("adjustSearchOrType")}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}
@@ -3948,17 +4199,17 @@ function AuditTrailCard({ events }: { events: ScheduleEvent[] }) {
 }
 
 function LockedDirectionView() {
+  const _locale = useLocale();
+  const t = useTranslations("direction");
   return (
     <section className="flex h-full items-center justify-center p-6">
       <Alert className="max-w-xl" variant="warning">
         <LockKeyhole />
-        <AlertTitle>Ruta restringida</AlertTitle>
-        <AlertDescription>
-          Esta ruta está disponible solo para cuentas con rol Admin.
-        </AlertDescription>
+        <AlertTitle>{t("restrictedRoute")}</AlertTitle>
+        <AlertDescription>{t("restrictedDescription")}</AlertDescription>
         <AlertAction>
           <Link className={buttonVariants({ size: "sm" })} href="/teacher">
-            Volver a docente
+            {t("backToFaculty")}
           </Link>
         </AlertAction>
       </Alert>
@@ -3977,6 +4228,7 @@ function TeacherButton({
   selected: boolean;
   teacher: TeacherProfile;
 }) {
+  const tStatus = useTranslations("status");
   return (
     <button
       className={cn(
@@ -4000,7 +4252,7 @@ function TeacherButton({
           {contractRules[teacher.contract].short}
         </Badge>
         <span className="text-muted-foreground text-[11px]">
-          {statusLabel(teacher.status)}
+          {statusLabel(teacher.status, tStatus)}
         </span>
       </span>
     </button>
@@ -4021,6 +4273,19 @@ function ScheduleBoard({
   onToggleSlot?: (day: DayKey, hour: number) => void;
 }) {
   const selected = useMemo(() => new Set(availability), [availability]);
+  const _tScheduleBoard = useTranslations("scheduleBoard");
+  const tDays = useTranslations("days");
+  const tMisc = useTranslations("misc");
+  const tTeacher = useTranslations("teacher");
+  const tPrint = useTranslations("print");
+  const dayI18nKey: Record<DayKey, string> = {
+    lunes: "monday",
+    martes: "tuesday",
+    miercoles: "wednesday",
+    jueves: "thursday",
+    viernes: "friday",
+    sabado: "saturday",
+  };
 
   return (
     <div className="relative h-[560px] overflow-hidden md:h-full">
@@ -4036,7 +4301,9 @@ function ScheduleBoard({
                 key={day.key}
               >
                 <div className="flex h-10 items-center justify-between border-b bg-primary px-3 text-primary-foreground">
-                  <div className="font-medium">{day.label}</div>
+                  <div className="font-medium">
+                    {tDays(dayI18nKey[day.key])}
+                  </div>
                   <Badge
                     variant="secondary"
                     className="bg-card text-card-foreground"
@@ -4049,8 +4316,10 @@ function ScheduleBoard({
                     const key = slotKey(day.key, hour);
                     const isSelected = selected.has(key);
                     const Cell = interactive ? "button" : "div";
-                    const label = `${day.label} ${formatHour(hour)}: ${
-                      isSelected ? "disponible" : "sin marcar"
+                    const label = `${tDays(dayI18nKey[day.key])} ${formatHour(hour)}: ${
+                      isSelected
+                        ? tTeacher("availabilityLabel")
+                        : tMisc("unmarked")
                     }`;
                     return (
                       <Cell
@@ -4087,14 +4356,14 @@ function ScheduleBoard({
         <div className="flex h-full min-w-[660px] flex-col">
           <div className="grid h-11 shrink-0 grid-cols-[92px_repeat(6,minmax(94px,1fr))] border-b bg-primary text-primary-foreground text-sm">
             <div className="flex items-center border-r px-3 font-medium">
-              Hora
+              {tPrint("time")}
             </div>
             {days.map((day) => (
               <div
                 className="flex items-center justify-center border-r px-3 font-medium last:border-r-0"
                 key={day.key}
               >
-                {day.label}
+                {tDays(dayI18nKey[day.key])}
               </div>
             ))}
           </div>
@@ -4111,8 +4380,10 @@ function ScheduleBoard({
                   const key = slotKey(day.key, hour);
                   const isSelected = selected.has(key);
                   const Cell = interactive ? "button" : "div";
-                  const label = `${day.label} ${formatHour(hour)}: ${
-                    isSelected ? "disponible" : "sin marcar"
+                  const label = `${tDays(dayI18nKey[day.key])} ${formatHour(hour)}: ${
+                    isSelected
+                      ? tTeacher("availabilityLabel")
+                      : tMisc("unmarked")
                   }`;
                   return (
                     <Cell
@@ -4164,20 +4435,25 @@ function RulePanel({
   profile: TeacherProfile;
   validation: Validation;
 }) {
+  const _locale = useLocale();
+  const tMisc = useTranslations("misc");
+  const tTeacher = useTranslations("teacher");
+  const tRules = useTranslations("ruleMessages");
+  const tContracts = useTranslations("contracts");
   const rule = contractRules[profile.contract];
   const rows = [
     {
-      label: "Horas mínimas",
+      label: tMisc("minimumHours"),
       complete: validation.selectedHours >= rule.requiredHours,
       value: `${validation.selectedHours}/${rule.requiredHours}`,
     },
     {
-      label: "Días válidos",
+      label: tTeacher("validDays"),
       complete: validation.blockDays >= rule.requiredBlockDays,
       value: `${validation.blockDays}/${rule.requiredBlockDays}`,
     },
     {
-      label: "Cursos",
+      label: tTeacher("courses"),
       complete:
         validation.countedCourses <= rule.maxCourses &&
         validation.countedCourses > 0,
@@ -4190,12 +4466,16 @@ function RulePanel({
       <CardHeader className="space-y-0 px-3 py-1.5">
         <CardTitle className="flex items-center gap-2 text-base">
           <Info className="size-4 text-gold" />
-          Reglas activas
+          {tMisc("activeRules")}
         </CardTitle>
-        <CardDescription>{rule.text}</CardDescription>
+        <CardDescription>
+          {tContracts(
+            contractRules[profile.contract].text.slice("contracts.".length),
+          )}
+        </CardDescription>
         {!validation.complete ? (
           <CardDescription className="text-warning">
-            {scheduleCorrectionMessage(profile, validation)}
+            {scheduleCorrectionMessage(profile, validation, tRules)}
           </CardDescription>
         ) : null}
       </CardHeader>
@@ -4218,8 +4498,8 @@ function RulePanel({
 
 function CourseCardsList({
   courses,
-  emptyDescription = "Agrega un curso para habilitar la validación.",
-  emptyTitle = "Sin cursos",
+  emptyDescription,
+  emptyTitle,
   onRemoveCourse,
   removeDisabled = false,
 }: {
@@ -4229,6 +4509,11 @@ function CourseCardsList({
   onRemoveCourse?: (id: string) => void;
   removeDisabled?: boolean;
 }) {
+  const tCourseEditor = useTranslations("courseEditor");
+  const tCatalog = useTranslations("catalog");
+  const resolvedEmptyTitle = emptyTitle ?? tCourseEditor("noCourses");
+  const resolvedEmptyDescription =
+    emptyDescription ?? tCourseEditor("addCourseToEnableValidation");
   if (!courses.length) {
     return (
       <Empty className="h-full px-3 py-8">
@@ -4236,8 +4521,8 @@ function CourseCardsList({
           <BookOpen />
         </EmptyMedia>
         <EmptyHeader>
-          <EmptyTitle>{emptyTitle}</EmptyTitle>
-          <EmptyDescription>{emptyDescription}</EmptyDescription>
+          <EmptyTitle>{resolvedEmptyTitle}</EmptyTitle>
+          <EmptyDescription>{resolvedEmptyDescription}</EmptyDescription>
         </EmptyHeader>
         <EmptyContent />
       </Empty>
@@ -4262,12 +4547,12 @@ function CourseCardsList({
                 </span>
                 {course.isThesis ? (
                   <Badge variant="secondary" className="shrink-0">
-                    Tesis
+                    {tCatalog("thesis")}
                   </Badge>
                 ) : null}
               </div>
               <div className="mt-0.5 truncate text-muted-foreground text-xs">
-                {courseMeta(course)}
+                {courseMeta(course, tCatalog)}
               </div>
               <div className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
                 <GraduationCap className="size-3.5 shrink-0" />
@@ -4287,9 +4572,11 @@ function CourseCardsList({
                   }
                 >
                   <Trash2 data-icon="inline-start" />
-                  <span className="sr-only">Quitar curso</span>
+                  <span className="sr-only">
+                    {tCourseEditor("removeCourse")}
+                  </span>
                 </TooltipTrigger>
-                <TooltipContent>Quitar curso</TooltipContent>
+                <TooltipContent>{tCourseEditor("removeCourse")}</TooltipContent>
               </Tooltip>
             ) : null}
           </div>
@@ -4306,26 +4593,52 @@ function completionFor(profile: TeacherProfile, validation: Validation) {
 function scheduleCorrectionMessage(
   profile: Pick<TeacherProfile, "contract">,
   validation: Validation,
+  t: (key: string, params?: Record<string, string | number | Date>) => string,
 ) {
   const rule = contractRules[profile.contract];
   if (validation.blockDays < rule.requiredBlockDays) {
-    const missing = rule.requiredBlockDays - validation.blockDays;
-    const blockText =
-      rule.requiredDailyBlockCount === 1
-        ? "1 bloque de 4 h"
-        : `${rule.requiredDailyBlockCount} bloques de 4 h`;
-    return `Faltan ${missing} ${missing === 1 ? "día válido" : "días válidos"} con ${rule.requiredDailyHours} h en ${blockText}.`;
+    const missingDays = rule.requiredBlockDays - validation.blockDays;
+    const missingHours = rule.requiredHours - validation.selectedHours;
+    const tooManyCourses = validation.countedCourses > rule.maxCourses;
+    const noCourse = validation.countedCourses <= 0;
+    if (missingHours > 0 && noCourse && tooManyCourses) {
+      return t("allIncomplete", {
+        days: missingDays,
+        hours: missingHours,
+        max: rule.maxCourses,
+      });
+    }
+    if (missingHours > 0 && tooManyCourses) {
+      return t("missingHoursReduceCourses", {
+        hours: missingHours,
+        max: rule.maxCourses,
+      });
+    }
+    if (tooManyCourses) {
+      return t("missingValidDayReduceCourses", {
+        days: missingDays,
+        max: rule.maxCourses,
+      });
+    }
+    if (missingHours > 0) {
+      return t("missingValidDayAndHours", {
+        days: missingDays,
+        hours: missingHours,
+      });
+    }
+    return t("missingValidDay", { count: missingDays });
   }
   if (validation.selectedHours < rule.requiredHours) {
-    return `Faltan ${rule.requiredHours - validation.selectedHours} horas por marcar.`;
+    const missing = rule.requiredHours - validation.selectedHours;
+    return t("missingHours", { count: missing });
   }
   if (validation.countedCourses <= 0) {
-    return "Falta seleccionar al menos un curso no Tesis.";
+    return t("courseEditor.selectNonThesis");
   }
   if (validation.countedCourses > rule.maxCourses) {
-    return `Reduce cursos no Tesis a ${rule.maxCourses}.`;
+    return t("reduceNonThesisCourses", { max: rule.maxCourses });
   }
-  return "Aún faltan reglas por completar.";
+  return t("rulesStillIncomplete");
 }
 
 function countTeachersByStatus(
@@ -4346,10 +4659,14 @@ function filterTeachers(
     query,
     showOnlyPending,
     statusFilter,
+    t,
+    tContracts,
   }: {
     query: string;
     showOnlyPending: boolean;
     statusFilter: TeacherStatusFilter;
+    t?: (key: string) => string;
+    tContracts?: (key: string) => string;
   },
 ) {
   const normalizedQuery = query.trim().toLowerCase();
@@ -4366,8 +4683,12 @@ function filterTeachers(
     return [
       teacher.name,
       teacher.email,
-      statusLabel(teacher.status),
-      contractRules[teacher.contract].label,
+      statusLabel(teacher.status, t),
+      tContracts
+        ? tContracts(
+            contractRules[teacher.contract].label.slice("contracts.".length),
+          )
+        : contractRules[teacher.contract].short,
       contractRules[teacher.contract].short,
     ]
       .join(" ")
@@ -4382,10 +4703,16 @@ function filterUsers(
     onboardingFilter,
     query,
     roleFilter,
+    t,
+    tRole,
+    tUsers,
   }: {
     onboardingFilter: UserOnboardingFilter;
     query: string;
     roleFilter: UserRoleFilter;
+    t?: (key: string) => string;
+    tRole?: (key: string) => string;
+    tUsers?: (key: string) => string;
   },
 ) {
   const normalizedQuery = query.trim().toLowerCase();
@@ -4405,13 +4732,23 @@ function filterUsers(
     return [
       user.name,
       user.email,
-      roleLabel(user.role),
+      roleLabel(user.role, tRole),
       user.school,
       user.teacherCode ?? "",
       user.teacherCategory ?? "",
       user.academicDegree ?? "",
-      user.teacherStatus ? statusLabel(user.teacherStatus) : "No aplica",
-      user.onboardingComplete ? "Ingresó" : "Sin ingreso",
+      user.teacherStatus
+        ? statusLabel(user.teacherStatus, t)
+        : tUsers
+          ? tUsers("noSignIn")
+          : "No aplica",
+      user.onboardingComplete
+        ? tUsers
+          ? tUsers("hasSignedIn")
+          : "Ingresó"
+        : tUsers
+          ? tUsers("noSignIn")
+          : "Sin ingreso",
     ]
       .join(" ")
       .toLowerCase()
@@ -4425,10 +4762,12 @@ function filterCourses(
     query,
     schoolFilter,
     statusFilter,
+    tCatalog,
   }: {
     query: string;
     schoolFilter: string;
     statusFilter: CourseStatusFilter;
+    tCatalog?: (key: string) => string;
   },
 ) {
   const normalizedQuery = query.trim().toLowerCase();
@@ -4451,10 +4790,20 @@ function filterCourses(
       course.code,
       course.name,
       course.school,
-      course.cycle ? `Ciclo ${course.cycle}` : "",
-      course.credits ? `${course.credits} créditos` : "",
-      active ? "Activo" : "Suspendido",
-      course.isThesis ? "Tesis" : "",
+      course.cycle
+        ? `${tCatalog ? tCatalog("cycle") : "Ciclo"} ${course.cycle}`
+        : "",
+      course.credits
+        ? `${course.credits} ${tCatalog ? tCatalog("credits") : "créditos"}`
+        : "",
+      active
+        ? tCatalog
+          ? tCatalog("activeLabel")
+          : "Activo"
+        : tCatalog
+          ? tCatalog("suspendedLabel")
+          : "Suspendido",
+      course.isThesis ? (tCatalog ? tCatalog("thesis") : "Tesis") : "",
     ]
       .join(" ")
       .toLowerCase()
@@ -4466,11 +4815,15 @@ function courseLabel(course: Course) {
   return course.code ? `${course.code} · ${course.name}` : course.name;
 }
 
-function courseMeta(course: Course) {
+function courseMeta(course: Course, tCatalog?: (key: string) => string) {
   return [
     course.code,
-    course.cycle ? `Ciclo ${course.cycle}` : "",
-    course.credits ? `${course.credits} cr.` : "",
+    course.cycle
+      ? `${tCatalog ? tCatalog("cycle") : "Ciclo"} ${course.cycle}`
+      : "",
+    course.credits
+      ? `${course.credits} ${tCatalog ? tCatalog("crShort") : "cr."}`
+      : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -4482,11 +4835,22 @@ function teacherButtonMeta(teacher: TeacherProfile) {
     .join(" · ");
 }
 
-function teacherProfileSummary(teacher: TeacherProfile) {
+function teacherProfileSummary(
+  teacher: TeacherProfile,
+  tContracts?: (key: string) => string,
+  tStatus?: (key: string) => string,
+  tMisc?: (key: string) => string,
+) {
   return [
-    contractRules[teacher.contract].label,
-    statusLabel(teacher.status),
-    teacher.teacherCode ? `Código ${teacher.teacherCode}` : "",
+    tContracts
+      ? tContracts(
+          contractRules[teacher.contract].label.slice("contracts.".length),
+        )
+      : contractRules[teacher.contract].short,
+    statusLabel(teacher.status, tStatus),
+    teacher.teacherCode
+      ? `${tMisc ? tMisc("codigo") : "Código"} ${teacher.teacherCode}`
+      : "",
     teacher.department,
     teacher.category,
     teacher.academicDegree,
@@ -4495,24 +4859,33 @@ function teacherProfileSummary(teacher: TeacherProfile) {
     .join(" · ");
 }
 
-function statusLabel(status: TeacherProfile["status"]) {
+function statusLabel(
+  status: TeacherProfile["status"],
+  t?: (key: string) => string,
+) {
   if (status === "aprobado") {
-    return "Aprobado";
+    return t ? t("approved") : "Aprobado";
   }
   if (status === "enviado") {
-    return "Enviado";
+    return t ? t("submitted") : "Enviado";
   }
   if (status === "observado") {
-    return "Observado";
+    return t ? t("observed") : "Observado";
   }
-  return "Borrador";
+  return t ? t("draft") : "Borrador";
 }
 
-function roleLabel(role: AppRole) {
+function roleLabel(role: AppRole, t?: (key: string) => string) {
   if (role === "admin") {
-    return "Admin";
+    return t ? t("adminLabel") : "Admin";
   }
-  return role === "direccion" ? "Dirección" : "Docente";
+  return role === "direccion"
+    ? t
+      ? t("directionLabel")
+      : "Dirección"
+    : t
+      ? t("docenteLabel")
+      : "Docente";
 }
 
 function initialsFor(name: string) {
@@ -4526,21 +4899,49 @@ function initialsFor(name: string) {
   );
 }
 
-function routeLabel(view: ViewKey) {
+function routeLabel(view: ViewKey, t?: (key: string) => string) {
   if (view === "configuracion") {
-    return "Configuración";
+    return t ? t("settings") : "Configuración";
   }
   if (view === "usuarios") {
-    return "Usuarios";
+    return t ? t("users") : "Usuarios";
   }
   if (view === "auditoria") {
-    return "Auditoría";
+    return t ? t("audit") : "Auditoría";
   }
-  return view === "direccion" ? "Dirección" : "Docente";
+  return view === "direccion"
+    ? t
+      ? t("direction")
+      : "Dirección"
+    : t
+      ? t("teacher")
+      : "Docente";
 }
 
-function eventLabel(eventType: string) {
-  const labels: Record<string, string> = {
+function eventLabel(eventType: string, t?: (key: string) => string) {
+  const keys: Record<string, string> = {
+    "director.approved_schedule": "scheduleApproved",
+    "director.course_assigned": "courseAssigned",
+    "director.course_imported": "teachingLoadImported",
+    "director.course_unassigned": "courseRemoved",
+    "director.observed_schedule": "scheduleSubmitted",
+    "period.closed": "periodClosed",
+    "period.reopened": "periodReopened",
+    "teacher.availability_changed": "availabilityUpdated",
+    "teacher.contract_changed": "teachingCategoryChanged",
+    "teacher.course_added": "courseAdded",
+    "teacher.course_removed": "courseRemoved",
+    "teacher.submitted_schedule": "scheduleSubmitted",
+    "onboarding.completed": "profileConfigured",
+    "access.user_updated": "accessUpdated",
+    "catalog.course_status_changed": "courseStatusUpdated",
+    "catalog.course_upserted": "courseSaved",
+  };
+  const key = keys[eventType];
+  if (t && key) {
+    return t(key);
+  }
+  const fallback: Record<string, string> = {
     "director.approved_schedule": "Horario aprobado",
     "director.course_assigned": "Curso asignado",
     "director.course_imported": "Carga docente importada",
@@ -4558,32 +4959,32 @@ function eventLabel(eventType: string) {
     "catalog.course_status_changed": "Estado de curso actualizado",
     "catalog.course_upserted": "Curso guardado",
   };
-  return labels[eventType] ?? eventType;
+  return fallback[eventType] ?? eventType;
 }
 
-function eventScopeLabel(eventType: string) {
+function eventScopeLabel(eventType: string, t?: (key: string) => string) {
   if (eventType.startsWith("teacher.")) {
-    return "Docente";
+    return t ? t("schedule") : "Horario";
   }
   if (eventType.startsWith("director.")) {
-    return "Dirección";
+    return t ? t("roster") : "Padrón";
   }
   if (eventType.startsWith("catalog.")) {
-    return "Catálogo";
+    return t ? t("catalog") : "Catálogo";
   }
   if (eventType.startsWith("access.")) {
-    return "Accesos";
+    return t ? t("accesses") : "Accesos";
   }
   if (eventType.startsWith("settings.") || eventType.startsWith("period.")) {
-    return "Periodo";
+    return t ? t("period") : "Periodo";
   }
   if (eventType.startsWith("onboarding.")) {
-    return "Onboarding";
+    return t ? t("user") : "Usuario";
   }
-  return "Sistema";
+  return t ? t("system") : "Sistema";
 }
 
-function eventSummary(event: ScheduleEvent) {
+function eventSummary(event: ScheduleEvent, t?: (key: string) => string) {
   if (typeof event.metadata.note === "string") {
     return event.metadata.note;
   }
@@ -4602,13 +5003,19 @@ function eventSummary(event: ScheduleEvent) {
     return [event.metadata.name, school].filter(Boolean).join(" · ");
   }
   if (typeof event.metadata.active === "boolean") {
-    return event.metadata.active ? "Curso activo" : "Curso suspendido";
+    return event.metadata.active
+      ? t
+        ? t("courseActive")
+        : "Curso activo"
+      : t
+        ? t("courseSuspended")
+        : "Curso suspendido";
   }
   if (typeof event.metadata.contract === "string") {
-    return contractRules[event.metadata.contract as ContractKey]?.label;
+    return contractRules[event.metadata.contract as ContractKey]?.short;
   }
   if (typeof event.metadata.slots === "number") {
-    return `${event.metadata.slots} bloques marcados`;
+    return `${event.metadata.slots} ${t ? t("markedBlocks") : "bloques marcados"}`;
   }
   if (typeof event.metadata.courseId === "string") {
     const name =
@@ -4618,17 +5025,17 @@ function eventSummary(event: ScheduleEvent) {
     return [name, event.metadata.courseId].filter(Boolean).join(" · ");
   }
   if (typeof event.metadata.importedCourses === "number") {
-    return `${event.metadata.importedCourses} cursos importados`;
+    return `${event.metadata.importedCourses} ${t ? t("events.importedCourses") : "cursos importados"}`;
   }
   return "";
 }
 
-function formatEventDate(value: string) {
+function formatEventDate(value: string, locale: string = "es") {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  return new Intl.DateTimeFormat("es-PE", {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -4636,16 +5043,31 @@ function formatEventDate(value: string) {
   }).format(date);
 }
 
-function exportAuditCsv(events: ScheduleEvent[]) {
+function intlLocale(locale: string) {
+  const localesByAppLocale: Record<string, string> = {
+    en: "en-US",
+    es: "es-PE",
+    "zh-CN": "zh-CN",
+    "zh-TW": "zh-TW",
+  };
+  return localesByAppLocale[locale];
+}
+
+function exportAuditCsv(
+  events: ScheduleEvent[],
+  locale: string,
+  t: (key: string) => string,
+  tEvents: (key: string) => string,
+) {
   const rows = [
-    ["Fecha", "Evento", "Tipo", "Actor", "Referencia", "Detalle"],
+    [t("date"), t("event"), t("type"), t("actor"), t("reference"), t("detail")],
     ...events.map((event) => [
-      formatEventDate(event.createdAt),
-      eventLabel(event.eventType),
+      formatEventDate(event.createdAt, locale),
+      eventLabel(event.eventType, tEvents),
       event.eventType,
       event.actorName,
       event.teacherId,
-      eventSummary(event),
+      eventSummary(event, tEvents),
     ]),
   ];
   const csv = rows
@@ -4670,12 +5092,20 @@ async function exportXlsx(
   profile: TeacherProfile,
   validation: Validation,
   academicTerm: string,
+  locale: string,
+  t: (key: string) => string,
+  tMisc?: (key: string) => string,
+  tDays?: (key: string) => string,
 ) {
   const XLSX = await import("xlsx");
   const { rows, merges, rowHeights } = buildPrintedScheduleSheetRows(
     profile,
     validation,
     academicTerm,
+    locale,
+    t,
+    tMisc,
+    tDays,
   );
   const worksheet = XLSX.utils.aoa_to_sheet(rows) as XlsxWorksheet;
   worksheet["!merges"] = merges;
@@ -4706,7 +5136,11 @@ async function exportXlsx(
   };
   stylePrintedScheduleWorksheet(worksheet);
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Disponibilidad");
+  XLSX.utils.book_append_sheet(
+    workbook,
+    worksheet,
+    t("print.sheetName").slice(0, 31),
+  );
   XLSX.writeFile(workbook, `${printedScheduleFileName(profile)}.xlsx`, {
     cellStyles: true,
   });
@@ -4716,21 +5150,40 @@ async function exportPdf(
   profile: TeacherProfile,
   _validation: Validation,
   academicTerm: string,
+  locale: string,
+  t: (key: string) => string,
+  tMisc?: (key: string) => string,
+  tDays?: (key: string) => string,
 ) {
   const { jsPDF } = await import("jspdf");
   const doc = createPrintedScheduleDocument(jsPDF);
-  drawPrintedSchedulePage(doc, profile, academicTerm);
+  drawPrintedSchedulePage(doc, profile, academicTerm, locale, t, tMisc, tDays);
   doc.save(`${printedScheduleFileName(profile)}.pdf`);
 }
 
-async function exportAllPdf(profiles: TeacherProfile[], academicTerm: string) {
+async function exportAllPdf(
+  profiles: TeacherProfile[],
+  academicTerm: string,
+  locale: string,
+  t: (key: string) => string,
+  tMisc?: (key: string) => string,
+  tDays?: (key: string) => string,
+) {
   const { jsPDF } = await import("jspdf");
   const doc = createPrintedScheduleDocument(jsPDF);
   profiles.forEach((profile, index) => {
     if (index > 0) {
       doc.addPage("a4", "portrait");
     }
-    drawPrintedSchedulePage(doc, profile, academicTerm);
+    drawPrintedSchedulePage(
+      doc,
+      profile,
+      academicTerm,
+      locale,
+      t,
+      tMisc,
+      tDays,
+    );
   });
   doc.save(printedScheduleBundleFileName(academicTerm));
 }
@@ -4746,6 +5199,10 @@ function drawPrintedSchedulePage(
   doc: JsPdfDocument,
   profile: TeacherProfile,
   academicTerm: string,
+  _locale: string,
+  t: (key: string) => string,
+  tMisc?: (key: string) => string,
+  tDays?: (key: string) => string,
 ) {
   const selected = new Set(profile.availability);
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -4800,48 +5257,49 @@ function drawPrintedSchedulePage(
     doc.text(visibleLines, textX, textY, { align });
   };
 
-  drawCell(
-    margin,
-    y,
-    tableWidth,
-    19,
-    "UNIVERSIDAD NACIONAL MAYOR DE SAN MARCOS\nFACULTAD DE INGENIERIA DE SISTEMAS E INFORMATICA\nSIGESDAC\nDISPONIBILIDAD DOCENTE",
-    { align: "center", bold: true, fontSize: 7.6, padding: 2 },
-  );
+  drawCell(margin, y, tableWidth, 19, t("print.universityHeader"), {
+    align: "center",
+    bold: true,
+    fontSize: 7.6,
+    padding: 2,
+  });
   y += 21;
 
-  drawCell(margin, y, tableWidth, 5.5, "DATOS GENERALES", {
+  drawCell(margin, y, tableWidth, 5.5, t("print.generalData"), {
     bold: true,
     fill: sectionFill,
     fontSize: 8,
   });
   y += 5.5;
-  drawCell(
-    margin,
-    y,
-    tableWidth * 0.7,
-    7,
-    `Apellidos y Nombres: ${profile.name}`,
-    { fontSize: 8 },
-  );
+  drawCell(margin, y, tableWidth * 0.7, 7, `${t("names")}: ${profile.name}`, {
+    fontSize: 8,
+  });
   drawCell(
     margin + tableWidth * 0.7,
     y,
     tableWidth * 0.3,
     7,
-    `Código: ${profile.teacherCode ?? "-"}`,
+    `${t("code")}: ${profile.teacherCode ?? "-"}`,
     { fontSize: 8 },
   );
   y += 10;
 
-  drawCell(margin, y, tableWidth, 5.5, "DISPONIBILIDAD", {
+  drawCell(margin, y, tableWidth, 5.5, t("print.availability"), {
     bold: true,
     fill: sectionFill,
     fontSize: 8,
   });
   y += 5.5;
   const availabilityColumnWidth = tableWidth / 4;
-  ["SEMESTRE", "FECHA", "CATEGORIA", "HORAS"].forEach((label, index) => {
+  [
+    t("print.term"),
+    "",
+    t("print.date"),
+    "",
+    t("print.category"),
+    "",
+    t("print.hours"),
+  ].forEach((label, index) => {
     drawCell(
       margin + availabilityColumnWidth * index,
       y,
@@ -4855,7 +5313,7 @@ function drawPrintedSchedulePage(
   [
     academicTerm,
     printedScheduleDate(profile),
-    printedCategory(profile),
+    printedCategory(profile, undefined, tMisc),
     String(contractRules[profile.contract].requiredHours),
   ].forEach((value, index) => {
     drawCell(
@@ -4869,7 +5327,7 @@ function drawPrintedSchedulePage(
   });
   y += 11;
 
-  drawCell(margin, y, tableWidth, 6, "HORARIOS DE DISPONIBILIDAD", {
+  drawCell(margin, y, tableWidth, 6, t("print.availabilitySchedule"), {
     align: "center",
     bold: true,
     fill: sectionFill,
@@ -4879,7 +5337,7 @@ function drawPrintedSchedulePage(
   const hourColumnWidth = 30;
   const dayColumnWidth = (tableWidth - hourColumnWidth) / days.length;
   const scheduleRowHeight = 8.3;
-  drawCell(margin, y, hourColumnWidth, 7, "Hora", {
+  drawCell(margin, y, hourColumnWidth, 7, t("print.time"), {
     align: "center",
     bold: true,
     fill: thinFill,
@@ -4891,7 +5349,7 @@ function drawPrintedSchedulePage(
       y,
       dayColumnWidth,
       7,
-      day.label,
+      localizedDayLabel(day.label, tDays),
       { align: "center", bold: true, fill: thinFill, fontSize: 8 },
     );
   });
@@ -4915,7 +5373,7 @@ function drawPrintedSchedulePage(
   });
   y += 5;
 
-  drawCell(margin, y, tableWidth, 6, "CURSOS QUE DESEA DICTAR", {
+  drawCell(margin, y, tableWidth, 6, t("print.coursesToTeach"), {
     align: "center",
     bold: true,
     fill: sectionFill,
@@ -4924,16 +5382,23 @@ function drawPrintedSchedulePage(
   y += 6;
   const courseColumnWidth = tableWidth * 0.53;
   const schoolColumnWidth = tableWidth - courseColumnWidth;
-  drawCell(margin, y, courseColumnWidth, 6, "CURSO", {
+  drawCell(margin, y, courseColumnWidth, 6, t("print.course"), {
     bold: true,
     fill: thinFill,
     fontSize: 8,
   });
-  drawCell(margin + courseColumnWidth, y, schoolColumnWidth, 6, "ESCUELA", {
-    bold: true,
-    fill: thinFill,
-    fontSize: 8,
-  });
+  drawCell(
+    margin + courseColumnWidth,
+    y,
+    schoolColumnWidth,
+    6,
+    t("print.school"),
+    {
+      bold: true,
+      fill: thinFill,
+      fontSize: 8,
+    },
+  );
   y += 6;
   const courseRows = Math.max(4, profile.courses.length);
   const availableCourseHeight = pageHeight - y - 11;
@@ -4986,6 +5451,10 @@ function buildPrintedScheduleSheetRows(
   profile: TeacherProfile,
   validation: Validation,
   academicTerm: string,
+  _locale: string,
+  t: (key: string) => string,
+  tMisc?: (key: string) => string,
+  tDays?: (key: string) => string,
 ) {
   const selected = new Set(profile.availability);
   const rows: (string | number)[][] = [];
@@ -5011,34 +5480,37 @@ function buildPrintedScheduleSheetRows(
     });
   };
 
-  const titleRow = addRow(
-    [
-      "UNIVERSIDAD NACIONAL MAYOR DE SAN MARCOS\nFACULTAD DE INGENIERIA DE SISTEMAS E INFORMATICA\nSIGESDAC\nDISPONIBILIDAD DOCENTE",
-    ],
-    54,
-  );
+  const titleRow = addRow([t("print.universityHeader")], 54);
   merge(titleRow, 0, titleRow, 6);
 
-  const generalHeader = addRow(["DATOS GENERALES"], 18);
+  const generalHeader = addRow([t("print.generalData")], 18);
   merge(generalHeader, 0, generalHeader, 6);
   const generalRow = addRow(
     [
-      `Apellidos y Nombres: ${profile.name}`,
+      `${t("print.names")}: ${profile.name}`,
       "",
       "",
       "",
       "",
-      `Código: ${profile.teacherCode ?? "-"}`,
+      `${t("print.code")}: ${profile.teacherCode ?? "-"}`,
     ],
     20,
   );
   merge(generalRow, 0, generalRow, 4);
   merge(generalRow, 5, generalRow, 6);
 
-  const availabilityHeader = addRow(["DISPONIBILIDAD"], 18);
+  const availabilityHeader = addRow([t("print.availability")], 18);
   merge(availabilityHeader, 0, availabilityHeader, 6);
   const availabilityLabels = addRow(
-    ["SEMESTRE", "", "FECHA", "", "CATEGORIA", "", "HORAS"],
+    [
+      t("print.term"),
+      "",
+      t("print.date"),
+      "",
+      t("print.category"),
+      "",
+      t("print.hours"),
+    ],
     20,
   );
   merge(availabilityLabels, 0, availabilityLabels, 1);
@@ -5050,7 +5522,7 @@ function buildPrintedScheduleSheetRows(
       "",
       printedScheduleDate(profile),
       "",
-      printedCategory(profile),
+      printedCategory(profile, undefined, tMisc),
       "",
       contractRules[profile.contract].requiredHours,
     ],
@@ -5060,9 +5532,15 @@ function buildPrintedScheduleSheetRows(
   merge(availabilityValues, 2, availabilityValues, 3);
   merge(availabilityValues, 4, availabilityValues, 5);
 
-  const scheduleHeader = addRow(["HORARIOS DE DISPONIBILIDAD"], 18);
+  const scheduleHeader = addRow([t("print.availabilitySchedule")], 18);
   merge(scheduleHeader, 0, scheduleHeader, 6);
-  addRow(["Hora", ...days.map((day) => day.label)], 20);
+  addRow(
+    [
+      t("print.time"),
+      ...days.map((day) => localizedDayLabel(day.label, tDays)),
+    ],
+    20,
+  );
   hours.forEach((hour) => {
     addRow(
       [
@@ -5073,9 +5551,12 @@ function buildPrintedScheduleSheetRows(
     );
   });
 
-  const coursesHeader = addRow(["CURSOS QUE DESEA DICTAR"], 18);
+  const coursesHeader = addRow([t("print.coursesToTeach")], 18);
   merge(coursesHeader, 0, coursesHeader, 6);
-  const courseLabels = addRow(["CURSO", "", "", "", "ESCUELA"], 20);
+  const courseLabels = addRow(
+    [t("print.course"), "", "", "", t("print.school")],
+    20,
+  );
   merge(courseLabels, 0, courseLabels, 3);
   merge(courseLabels, 4, courseLabels, 6);
   Array.from({ length: Math.max(4, profile.courses.length) }).forEach(
@@ -5098,11 +5579,11 @@ function buildPrintedScheduleSheetRows(
 
   const summaryRow = addRow(
     [
-      `Horas marcadas: ${validation.selectedHours} / ${contractRules[profile.contract].requiredHours}`,
+      `${t("print.markedHours")}: ${validation.selectedHours} / ${contractRules[profile.contract].requiredHours}`,
       "",
-      `Bloques: ${validation.blockDays}`,
+      `${t("print.blocks")}: ${validation.blockDays}`,
       "",
-      `Cursos: ${validation.countedCourses}`,
+      `${t("print.course")}: ${validation.countedCourses}`,
     ],
     18,
   );
@@ -5220,11 +5701,24 @@ function formatPrintDateValue(date: Date) {
   }).format(date);
 }
 
-function printedCategory(profile: TeacherProfile) {
+function localizedDayLabel(label: string, tDays?: (key: string) => string) {
+  const keyName = label.startsWith("days.")
+    ? label.slice("days.".length)
+    : label;
+  return (tDays ?? ((k: string) => k))(keyName);
+}
+
+function printedCategory(
+  profile: TeacherProfile,
+  _t?: (key: string) => string,
+  tMisc?: (key: string) => string,
+) {
   const category = profile.category?.trim();
   const categoryLabel = category
     ? (teacherCategoryLabels[category.toUpperCase()] ?? category)
-    : "Sin categoría";
+    : tMisc
+      ? tMisc("noCategory")
+      : "Sin categoría";
   const rule = contractRules[profile.contract];
   return `${categoryLabel} ${rule.short} ${rule.requiredHours}hrs.`;
 }
@@ -5263,7 +5757,10 @@ function printedScheduleBundleFileName(academicTerm: string) {
   return `disponibilidades-docentes-${term || "unmsm"}.pdf`;
 }
 
-export function SignedOutShell() {
+export function LocalizedSignedOutShell() {
+  const tAuth = useTranslations("auth");
+  const _tLanding = useTranslations("landing");
+  const tMisc = useTranslations("misc");
   return (
     <main className="flex h-screen items-center justify-center overflow-hidden bg-background p-3 text-foreground md:p-6">
       <section className="grid h-full max-h-[620px] w-full max-w-5xl overflow-hidden rounded-lg border bg-card shadow-sm md:grid-cols-[minmax(0,1fr)_360px]">
@@ -5271,7 +5768,7 @@ export function SignedOutShell() {
           <div className="flex items-center gap-3">
             <Image
               src="/escudo-unmsm.png"
-              alt="Escudo UNMSM"
+              alt={tMisc("escudoAlt")}
               width={56}
               height={56}
               className="rounded-md bg-vellum p-1"
@@ -5282,21 +5779,24 @@ export function SignedOutShell() {
                 UNMSM
               </p>
               <h1 className="truncate font-serif text-3xl font-semibold">
-                Horarios FISI
+                {tMisc("horariosFisi")}
               </h1>
             </div>
           </div>
           <div className="max-w-xl space-y-4">
             <p className="font-serif text-3xl leading-tight md:text-4xl">
-              Registro académico de disponibilidad docente.
+              {tAuth("landingTitle")}
             </p>
             <p className="max-w-lg text-sidebar-foreground/75 text-sm leading-6">
-              Acceso para docentes y Dirección Académica de la Facultad de
-              Ingeniería de Sistemas e Informática.
+              {tAuth("landingDescription")}
             </p>
           </div>
           <div className="grid gap-2 text-sm sm:grid-cols-3">
-            {["Docentes", "Dirección", "Semestre 2026.2"].map((item) => (
+            {[
+              tAuth("statsFaculty"),
+              tAuth("statsDirection"),
+              tAuth("statsSemester"),
+            ].map((item) => (
               <div className="border-sidebar-border border-t pt-2" key={item}>
                 <span className="text-sidebar-foreground/70">{item}</span>
               </div>
@@ -5305,25 +5805,24 @@ export function SignedOutShell() {
         </div>
         <div className="flex min-h-0 items-center bg-card p-5 md:p-6">
           <div className="w-full space-y-5">
+            <LanguageSwitcher className="justify-end" />
             <div className="space-y-1">
-              <Badge variant="secondary">Acceso institucional</Badge>
+              <Badge variant="secondary">{tAuth("accessBadge")}</Badge>
               <h2 className="font-serif text-2xl font-semibold">
-                Iniciar sesión
+                {tAuth("signInTitle")}
               </h2>
               <p className="text-muted-foreground text-sm leading-6">
-                Usa el correo registrado por la facultad para entrar al sistema
-                de horarios.
+                {tAuth("signInDescription")}
               </p>
             </div>
             <SignInButton mode="modal">
               <Button className="h-11 w-full">
                 <GraduationCap data-icon="inline-start" />
-                Ingresar con mi cuenta
+                {tAuth("signInButton")}
               </Button>
             </SignInButton>
             <p className="border-t pt-3 text-muted-foreground text-xs leading-5">
-              Si tu correo no está habilitado, comunícate con Dirección
-              Académica FISI.
+              {tAuth("support")}
             </p>
           </div>
         </div>

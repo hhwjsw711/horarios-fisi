@@ -223,17 +223,19 @@ function isPostgresUrl(value: string | undefined) {
 async function verifyPublicRoutes(base: string): Promise<Check[]> {
   const routes = [
     { path: "/api/health", status: 200, okBody: true },
-    { path: "/sign-in", status: 200 },
+    { path: "/", status: 307, location: "/es" },
+    { path: "/es/sign-in", status: 200 },
     { path: "/api/schedule", status: 401 },
-    { path: "/direction", status: 307, location: "/sign-in" },
-    { path: "/direction/users", status: 307, location: "/sign-in" },
-    { path: "/direction/audit", status: 307, location: "/sign-in" },
-    { path: "/direction/settings", status: 307, location: "/sign-in" },
+    { path: "/es/direction", status: 307, location: "/es/sign-in" },
+    { path: "/es/direction/users", status: 307, location: "/es/sign-in" },
+    { path: "/es/direction/audit", status: 307, location: "/es/sign-in" },
+    { path: "/es/direction/settings", status: 307, location: "/es/sign-in" },
   ];
   const checks: Check[] = [];
   for (const route of routes) {
     const response = await fetch(`${base}${route.path}`, {
       redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
     });
     const location = response.headers.get("location");
     const body = route.okBody ? await response.json().catch(() => null) : null;
@@ -241,12 +243,23 @@ async function verifyPublicRoutes(base: string): Promise<Check[]> {
       name: `http.${route.path}`,
       ok:
         response.status === route.status &&
-        (!route.location || location === route.location) &&
+        (!route.location || locationPath(location) === route.location) &&
         (!route.okBody || body?.ok === true),
       detail: `${response.status}${location ? ` ${location}` : ""}`,
     });
   }
   return checks;
+}
+
+function locationPath(location: string | null) {
+  if (!location) {
+    return null;
+  }
+  try {
+    return new URL(location).pathname;
+  } catch {
+    return location;
+  }
 }
 
 async function readCounts(): Promise<Counts> {

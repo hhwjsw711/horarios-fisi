@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { routing } from "@/i18n/routing";
 import { runScheduleAction } from "@/lib/api/schedule-action-runner";
 import type {
   CompleteOnboardingAction,
@@ -18,7 +19,7 @@ export async function runScheduleMutation(
     return result;
   }
   if (!("profile" in result.data)) {
-    return { ok: false, error: "Respuesta no válida." };
+    return { ok: false, error: "toast.invalidResponse" };
   }
   revalidateScheduleRoutes();
   return { ok: true, payload: result.data };
@@ -35,7 +36,7 @@ export async function runTeacherCourseImport(
     return result;
   }
   if (!("payload" in result.data)) {
-    return { ok: false, error: "Respuesta no válida." };
+    return { ok: false, error: "toast.invalidResponse" };
   }
   revalidateScheduleRoutes();
   return { ok: true, result: result.data };
@@ -52,7 +53,7 @@ export async function completeOnboardingMutation(
     return result;
   }
   if (!("profile" in result.data)) {
-    return { ok: false, error: "Respuesta no válida." };
+    return { ok: false, error: "toast.invalidResponse" };
   }
   revalidateScheduleRoutes();
   return { ok: true, payload: result.data };
@@ -73,16 +74,13 @@ async function runAuthenticatedAction(
 > {
   const identity = await resolveScheduleIdentity();
   if (!identity) {
-    return { ok: false, error: "Sesión no válida.", status: 401 };
+    return { ok: false, error: "toast.invalidSession", status: 401 };
   }
   return runScheduleAction(identity, action);
 }
 
 function revalidateScheduleRoutes() {
-  revalidatePath("/teacher");
-  revalidatePath("/direction");
-  revalidatePath("/direction/users");
-  revalidatePath("/direction/audit");
-  revalidatePath("/direction/settings");
-  revalidatePath("/onboarding");
+  for (const locale of routing.locales) {
+    revalidatePath(`/${locale}`, "layout");
+  }
 }

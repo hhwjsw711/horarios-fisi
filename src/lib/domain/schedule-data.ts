@@ -40,12 +40,12 @@ export type TeacherProfile = {
 };
 
 export const days: { key: DayKey; label: string }[] = [
-  { key: "lunes", label: "Lunes" },
-  { key: "martes", label: "Martes" },
-  { key: "miercoles", label: "Miércoles" },
-  { key: "jueves", label: "Jueves" },
-  { key: "viernes", label: "Viernes" },
-  { key: "sabado", label: "Sábado" },
+  { key: "lunes", label: "days.monday" },
+  { key: "martes", label: "days.tuesday" },
+  { key: "miercoles", label: "days.wednesday" },
+  { key: "jueves", label: "days.thursday" },
+  { key: "viernes", label: "days.friday" },
+  { key: "sabado", label: "days.saturday" },
 ];
 
 export const hours = Array.from({ length: 14 }, (_, index) => index + 8);
@@ -54,6 +54,7 @@ export const contractRules: Record<
   ContractKey,
   {
     label: string;
+    fallbackLabel: string;
     short: string;
     requiredHours: number;
     requiredDailyHours: number;
@@ -64,34 +65,37 @@ export const contractRules: Record<
   }
 > = {
   full: {
-    label: "Tiempo completo",
+    label: "contracts.fullTime",
+    fallbackLabel: "Tiempo completo",
     short: "TC",
     requiredHours: 40,
     requiredDailyHours: 8,
     requiredDailyBlockCount: 2,
     requiredBlockDays: 5,
     maxCourses: 3,
-    text: "8 horas diarias en bloques de 4 horas y hasta 3 cursos aparte de Tesis.",
+    text: "contracts.fullTimeDescription",
   },
   partial20: {
-    label: "Tiempo parcial 20 h",
+    label: "contracts.partTime20",
+    fallbackLabel: "Tiempo parcial 20 h",
     short: "TP 20",
     requiredHours: 20,
     requiredDailyHours: 4,
     requiredDailyBlockCount: 1,
     requiredBlockDays: 5,
     maxCourses: 2,
-    text: "4 horas diarias en bloques de 4 horas y hasta 2 cursos aparte de Tesis.",
+    text: "contracts.partTime20Description",
   },
   partial10: {
-    label: "Tiempo parcial 10 h",
+    label: "contracts.partTime10",
+    fallbackLabel: "Tiempo parcial 10 h",
     short: "TP 10",
     requiredHours: 12,
     requiredDailyHours: 4,
     requiredDailyBlockCount: 1,
     requiredBlockDays: 3,
     maxCourses: 1,
-    text: "4 horas en 3 días de la semana y 1 curso aparte de Tesis.",
+    text: "contracts.partTime10Description",
   },
 };
 

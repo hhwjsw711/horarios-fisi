@@ -285,7 +285,7 @@ function validateQuotas(
     const maxCourses = contractRules[teacher.contract].maxCourses;
     if (countedCourses > maxCourses) {
       errors.push(
-        `${teacher.name}: ${countedCourses}/${maxCourses} cursos no Tesis para ${contractRules[teacher.contract].label}.`,
+        `${teacher.name}: ${countedCourses}/${maxCourses} cursos no Tesis para ${contractRules[teacher.contract].fallbackLabel}.`,
       );
     }
   }
