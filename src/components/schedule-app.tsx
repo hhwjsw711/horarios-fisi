@@ -5157,7 +5157,17 @@ async function exportPdf(
 ) {
   const { jsPDF } = await import("jspdf");
   const doc = createPrintedScheduleDocument(jsPDF);
-  drawPrintedSchedulePage(doc, profile, academicTerm, locale, t, tMisc, tDays);
+  const fontName = await _resolvePdfFont(doc, locale);
+  drawPrintedSchedulePage(
+    doc,
+    profile,
+    academicTerm,
+    locale,
+    t,
+    tMisc,
+    tDays,
+    fontName,
+  );
   doc.save(`${printedScheduleFileName(profile)}.pdf`);
 }
 
@@ -5171,6 +5181,7 @@ async function exportAllPdf(
 ) {
   const { jsPDF } = await import("jspdf");
   const doc = createPrintedScheduleDocument(jsPDF);
+  const fontName = await _resolvePdfFont(doc, locale);
   profiles.forEach((profile, index) => {
     if (index > 0) {
       doc.addPage("a4", "portrait");
@@ -5183,6 +5194,7 @@ async function exportAllPdf(
       t,
       tMisc,
       tDays,
+      fontName,
     );
   });
   doc.save(printedScheduleBundleFileName(academicTerm));
@@ -5190,6 +5202,65 @@ async function exportAllPdf(
 
 type JsPdfConstructor = typeof import("jspdf").jsPDF;
 type JsPdfDocument = InstanceType<JsPdfConstructor>;
+
+let _pdfFontCache: { regular: string; bold: string; name: string } | null =
+  null;
+let _pdfFontLocale = "";
+
+function _chunkToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const size = 0x8000;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += size) {
+    parts.push(String.fromCharCode(...bytes.subarray(i, i + size)));
+  }
+  return btoa(parts.join(""));
+}
+
+async function _resolvePdfFont(
+  doc: JsPdfDocument,
+  locale: string,
+): Promise<string> {
+  // jsPDF binds fonts per-document; VFS + addFont must be called on each instance
+  if (_pdfFontCache && _pdfFontLocale === locale) {
+    doc.addFileToVFS("pfreg.ttf", _pdfFontCache.regular);
+    doc.addFileToVFS("pfbold.ttf", _pdfFontCache.bold);
+    doc.addFont("pfreg.ttf", _pdfFontCache.name, "normal");
+    doc.addFont("pfbold.ttf", _pdfFontCache.name, "bold");
+    return _pdfFontCache.name;
+  }
+  const prefix = locale.startsWith("zh") ? "NotoSansSC" : "NotoSans";
+  const regFile = `${prefix}-Regular.ttf`;
+  const boldFile = `${prefix}-Bold.ttf`;
+  try {
+    const [regRes, boldRes] = await Promise.all([
+      fetch(`/fonts/${regFile}`),
+      fetch(`/fonts/${boldFile}`),
+    ]);
+    if (!regRes.ok) throw new Error(`${regFile} HTTP ${regRes.status}`);
+    if (!boldRes.ok) throw new Error(`${boldFile} HTTP ${boldRes.status}`);
+    const [regBuf, boldBuf] = await Promise.all([
+      regRes.arrayBuffer(),
+      boldRes.arrayBuffer(),
+    ]);
+    const regBase64 = _chunkToBase64(regBuf);
+    const boldBase64 = _chunkToBase64(boldBuf);
+    const fontName = "CustomFont";
+    doc.addFileToVFS(regFile, regBase64);
+    doc.addFileToVFS(boldFile, boldBase64);
+    doc.addFont(regFile, fontName, "normal");
+    doc.addFont(boldFile, fontName, "bold");
+    _pdfFontCache = { regular: regBase64, bold: boldBase64, name: fontName };
+    _pdfFontLocale = locale;
+    return fontName;
+  } catch (e) {
+    console.warn(
+      `Font ${prefix} not available, falling back to helvetica (CJK/extended glyphs will be garbled)`,
+      e,
+    );
+    return "helvetica";
+  }
+}
 
 function createPrintedScheduleDocument(jsPDF: JsPdfConstructor) {
   return new jsPDF({ format: "a4", orientation: "portrait", unit: "mm" });
@@ -5203,6 +5274,7 @@ function drawPrintedSchedulePage(
   t: (key: string) => string,
   tMisc?: (key: string) => string,
   tDays?: (key: string) => string,
+  fontName = "helvetica",
 ) {
   const selected = new Set(profile.availability);
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -5216,7 +5288,7 @@ function drawPrintedSchedulePage(
   doc.setLineWidth(0.25);
 
   const setFont = (fontSize: number, bold = false) => {
-    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFont(fontName, bold ? "bold" : "normal");
     doc.setFontSize(fontSize);
   };
 
