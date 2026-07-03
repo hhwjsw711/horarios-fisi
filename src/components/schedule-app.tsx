@@ -2358,7 +2358,7 @@ function ConfigurationView({
                     onClick={handleTermSubmit}
                     variant="outline"
                   >
-                    {tMisc("save")}
+                    {tDir("save")}
                   </Button>
                 </div>
               </Field>
